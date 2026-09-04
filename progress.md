@@ -5,3 +5,4 @@ Plan: docs/superpowers/plans/2026-09-04-hextris-remake.md
 Current status: project foundation created.
 HexGrid implemented and verified.
 Match resolution and chain collapse verified.
+Seeded wave patterns and difficulty caps verified.
