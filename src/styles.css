@@ -1,0 +1,4 @@
+:root { color: #eee9df; background: #171918; font-family: Arial, sans-serif; }
+* { box-sizing: border-box; }
+html, body, #game-canvas, #ui-root { width: 100%; height: 100%; margin: 0; }
+#game-canvas, #ui-root { position: fixed; inset: 0; }
