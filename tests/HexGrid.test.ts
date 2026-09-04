@@ -22,4 +22,15 @@ describe('HexGrid', () => {
     expect(grid.snapshot()[0]?.map((item) => item.id)).toEqual([2]);
     expect(grid.isOverflowed()).toBe(false);
   });
+
+  it('replaces stacks with a defensive six-side copy', () => {
+    const grid = new HexGrid();
+    const replacement = [[block(1)], [], [], [], [], []];
+
+    grid.replaceStacks(replacement);
+    replacement[0]!.push(block(2));
+
+    expect(grid.snapshot()[0]?.map((item) => item.id)).toEqual([1]);
+    expect(() => grid.replaceStacks([[], [], [], [], []])).toThrow(RangeError);
+  });
 });

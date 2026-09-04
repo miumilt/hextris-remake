@@ -3,19 +3,19 @@ import type { BLOCK_COLORS } from './constants';
 export type BlockColor = (typeof BLOCK_COLORS)[number];
 
 export interface GridBlock {
-  id: number;
-  color: BlockColor;
+  readonly id: number;
+  readonly color: BlockColor;
 }
 
 export interface CellRef {
-  side: number;
-  index: number;
+  readonly side: number;
+  readonly index: number;
 }
 
 export interface FallingBlock extends GridBlock {
-  lane: number;
-  distance: number;
-  speed: number;
+  readonly lane: number;
+  readonly distance: number;
+  readonly speed: number;
 }
 
 export type GameMode = 'menu' | 'playing' | 'paused' | 'gameOver';
@@ -25,17 +25,22 @@ export type GameCommand =
   | { type: 'togglePause' };
 
 export type GameEvent =
-  | { type: 'blockLanded'; block: GridBlock; cell: CellRef }
-  | { type: 'matchCleared'; cells: readonly CellRef[]; color: BlockColor; chain: number }
-  | { type: 'comboChanged'; multiplier: number }
-  | { type: 'gameOver'; score: number };
+  | { readonly type: 'blockLanded'; readonly block: GridBlock; readonly cell: CellRef }
+  | {
+      readonly type: 'matchCleared';
+      readonly cells: readonly CellRef[];
+      readonly color: BlockColor;
+      readonly chain: number;
+    }
+  | { readonly type: 'comboChanged'; readonly multiplier: number }
+  | { readonly type: 'gameOver'; readonly score: number };
 
 export interface GameSnapshot {
-  mode: GameMode;
-  score: number;
-  combo: number;
-  orientation: number;
-  stacks: readonly (readonly GridBlock[])[];
-  falling: readonly FallingBlock[];
-  elapsedMs: number;
+  readonly mode: GameMode;
+  readonly score: number;
+  readonly combo: number;
+  readonly orientation: number;
+  readonly stacks: readonly (readonly GridBlock[])[];
+  readonly falling: readonly FallingBlock[];
+  readonly elapsedMs: number;
 }

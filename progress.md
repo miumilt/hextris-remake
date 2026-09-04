@@ -6,3 +6,4 @@ Current status: project foundation created.
 HexGrid implemented and verified.
 Match resolution and chain collapse verified.
 Seeded wave patterns and difficulty caps verified.
+Core game loop, score, combo, pause, and game over verified.

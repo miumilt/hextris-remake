@@ -4,7 +4,7 @@ import type { CellRef, GridBlock } from './types';
 const wrapSide = (value: number) => ((value % SIDE_COUNT) + SIDE_COUNT) % SIDE_COUNT;
 
 export class HexGrid {
-  private readonly stacks: GridBlock[][] = Array.from({ length: SIDE_COUNT }, () => []);
+  private stacks: GridBlock[][] = Array.from({ length: SIDE_COUNT }, () => []);
   public orientation = 0;
 
   public constructor(private readonly maxDepth = MAX_STACK_DEPTH) {}
@@ -31,6 +31,14 @@ export class HexGrid {
         .sort((a, b) => b - a);
       for (const index of indexes) this.stacks[side]!.splice(index, 1);
     }
+  }
+
+  public replaceStacks(stacks: readonly (readonly GridBlock[])[]): void {
+    if (stacks.length !== SIDE_COUNT) {
+      throw new RangeError(`stacks must contain exactly ${SIDE_COUNT} sides`);
+    }
+
+    this.stacks = stacks.map((stack) => [...stack]);
   }
 
   public isOverflowed(): boolean {
