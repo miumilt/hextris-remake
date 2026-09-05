@@ -7,6 +7,8 @@ const ORIGIN = { x: 0, y: 0 };
 const TURN = Math.PI / 3;
 const TURN_MS = 120;
 const COLLAPSE_MS = 140;
+// Keep in sync with enter-field's starting scale in styles.css.
+const MENU_FIELD_SCALE = 0.82;
 const WORLD_RADIUS = (START_DISTANCE + BLOCK_DEPTH + 32) / Math.cos(Math.PI / 6);
 const ease = (t: number): number => {
   const bounded = Math.max(0, Math.min(1, t));
@@ -81,7 +83,7 @@ export class CanvasRenderer {
     if (snapshot.mode === 'menu') {
       // A decorative arrangement, independent of the actual grid and spawning.
       ctx.save();
-      ctx.scale(1.55, 1.55);
+      ctx.scale(MENU_FIELD_SCALE, MENU_FIELD_SCALE);
       const angle = Math.sin(performance.now() / 11000) * 0.07;
       this.hex(angle);
       for (let side = 0; side < 6; side += 1) {

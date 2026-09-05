@@ -173,13 +173,17 @@ describe('GameRuntime', () => {
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
     vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(2);
     const canvas = document.createElement('canvas');
-    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ width: 800, height: 600 } as DOMRect);
+    const width = vi.spyOn(canvas, 'clientWidth', 'get').mockReturnValue(800);
+    const height = vi.spyOn(canvas, 'clientHeight', 'get').mockReturnValue(600);
+    // During enter-field, scale and rotation distort this rectangle.
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ width: 700, height: 540 } as DOMRect);
     const game = new GameEngine();
     const runtime = new GameRuntime(game, { canvas });
     const before = game.getSnapshot();
     runtime.start();
     expect([canvas.width, canvas.height]).toEqual([1600, 1200]);
-    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ width: 300, height: 200 } as DOMRect);
+    width.mockReturnValue(300);
+    height.mockReturnValue(200);
     window.dispatchEvent(new Event('resize'));
     expect([canvas.width, canvas.height]).toEqual([600, 400]);
     vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(1);
@@ -187,5 +191,15 @@ describe('GameRuntime', () => {
     expect([canvas.width, canvas.height]).toEqual([300, 200]);
     expect(game.getSnapshot()).toEqual(before);
     runtime.stop();
+  });
+  it('uses the viewport when canvas layout dimensions are unavailable', () => {
+    const canvas = document.createElement('canvas');
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(720);
+    vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(1);
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ width: 900, height: 500 } as DOMRect);
+    const runtime = new GameRuntime(new GameEngine(), { canvas });
+    runtime.resize();
+    expect([canvas.width, canvas.height]).toEqual([1280, 720]);
   });
 });

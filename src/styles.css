@@ -17,12 +17,12 @@ button:focus-visible { outline: 2px solid #eee9df; outline-offset: 5px; }
 h1, p { margin: 0; }
 h1 { font-family: Impact, 'Arial Narrow', 'Franklin Gothic Heavy', sans-serif; font-weight: 900; line-height: .92; letter-spacing: -.025em; }
 .eyebrow { display: block; font: 11px/1.5 var(--mono); letter-spacing: .2em; color: #a3a69e; }
-.menu-heading { position: absolute; top: max(44px, calc(50% - 282px)); left: 50%; transform: translateX(-50%); text-align: center; }
+.menu-heading { position: absolute; top: max(44px, calc(50% - 240px)); left: 50%; transform: translateX(-50%); text-align: center; }
 .menu-heading .eyebrow { margin-bottom: 17px; white-space: nowrap; }
 .menu-heading h1 { font-size: clamp(80px, 9vw, 124px); }
 .menu-heading::before { content: ''; position: absolute; width: 45px; height: 1px; background: #676b63; left: -69px; top: 9px; }
 .menu-heading::after { content: '06'; position: absolute; right: -39px; bottom: 4px; font: 11px var(--mono); color: #676b63; }
-.menu-actions { position: absolute; left: 50%; top: calc(50% + 142px); transform: translateX(-50%); width: 232px; text-align: center; }
+.menu-actions { position: absolute; left: 50%; top: calc(50% + 116px); transform: translateX(-50%); width: 232px; text-align: center; }
 .cut-button { display: block; width: 100%; min-height: 50px; padding: 14px 24px; border: 0; clip-path: var(--cut); background: #30342f; color: #eee9df; font: 700 13px/1.5 var(--mono); letter-spacing: .13em; transition: background 120ms, transform 120ms; }
 .cut-button.primary { background: #cb6b5f; color: #171918; }
 .cut-button:hover { background: #464b42; transform: translateY(-2px); }
@@ -52,12 +52,13 @@ body:has(#ui-root[data-transition='start']) #game-canvas { animation: enter-fiel
 .result-screen .screen-content > * { animation: result-in 260ms ease-out both; }
 .result-screen .screen-content > :nth-child(2) { animation-delay: 65ms; }
 .result-screen .screen-content > :nth-child(3) { animation-delay: 130ms; }
-@keyframes enter-field { from { transform: scale(1.55) rotate(-8deg); } to { transform: scale(1) rotate(0); } }
+/* Starting scale matches CanvasRenderer's MENU_FIELD_SCALE for a continuous hub size. */
+@keyframes enter-field { from { transform: scale(.82) rotate(-8deg); } to { transform: scale(1) rotate(0); } }
 @keyframes pause-wipe { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
 @keyframes result-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @media (min-height: 900px) {
-  .menu-heading { top: calc(50% - 350px); }
-  .menu-actions { top: calc(50% + 204px); }
+  .menu-heading { top: calc(50% - 300px); }
+  .menu-actions { top: calc(50% + 156px); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }

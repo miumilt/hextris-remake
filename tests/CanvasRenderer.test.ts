@@ -9,16 +9,19 @@ afterEach(() => vi.restoreAllMocks());
 // Canvas is an external drawing boundary unavailable in jsdom. Record submitted
 // polygons to check world placement without mocking the renderer or geometry.
 function surface() {
-  const polygons: { points: number[][]; style: unknown }[] = [];
+  const polygons: { points: number[][]; style: unknown; scale: number }[] = [];
   let points: number[][] = [];
+  let drawingScale = 1;
+  const savedScales: number[] = [];
   const context = {
-    setTransform: vi.fn(), clearRect: vi.fn(), fillRect: vi.fn(),
-    save: vi.fn(), restore: vi.fn(), translate: vi.fn(), scale: vi.fn(), rotate: vi.fn(),
+    setTransform: vi.fn((a: number) => { drawingScale = a; }), clearRect: vi.fn(), fillRect: vi.fn(),
+    save: () => { savedScales.push(drawingScale); }, restore: () => { drawingScale = savedScales.pop()!; },
+    translate: vi.fn(), scale: vi.fn((x: number, _y: number) => { drawingScale *= x; }), rotate: vi.fn(),
     beginPath: () => { points = []; },
     moveTo: (x: number, y: number) => { points.push([x, y]); },
     lineTo: (x: number, y: number) => { points.push([x, y]); },
     closePath: vi.fn(), stroke: vi.fn(), arc: vi.fn(), setLineDash: vi.fn(),
-    fill: () => { polygons.push({ points: [...points], style: context.fillStyle }); },
+    fill: () => { polygons.push({ points: [...points], style: context.fillStyle, scale: drawingScale }); },
     fillStyle: '' as unknown, strokeStyle: '', globalAlpha: 1,
     createLinearGradient: () => ({ addColorStop: vi.fn() }),
     createRadialGradient: () => ({ addColorStop: vi.fn() }),
@@ -37,6 +40,20 @@ const playing = (): GameSnapshot => {
 };
 
 describe('CanvasRenderer', () => {
+  it('draws a smaller menu hub that can grow into the live field', () => {
+    const { renderer, polygons } = surface();
+    renderer.resize(1280, 720, 1);
+    const hubRadius = () => {
+      const hub = polygons.find(({ points, style }) => points.length === 6 && typeof style === 'object')!;
+      return Math.hypot(...hub.points[0]!) * hub.scale;
+    };
+    renderer.render(new GameEngine().getSnapshot(), effects(), 0);
+    const menuRadius = hubRadius();
+    polygons.length = 0;
+    renderer.render(playing(), effects(), 0);
+    expect(menuRadius).toBeGreaterThan(0);
+    expect(menuRadius).toBeLessThan(hubRadius());
+  });
   it('draws one contracting plate per clear origin before the particle burst without mutating effects', () => {
     const { renderer, polygons, context } = surface();
     const fx = new EffectsSystem(() => 0.5);

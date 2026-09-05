@@ -80,9 +80,9 @@ export class GameRuntime {
   public readonly resize = (): void => {
     const canvas = this.options.canvas;
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const width = rect.width || this.host.innerWidth;
-    const height = rect.height || this.host.innerHeight;
+    // CSS entry transforms change the bounding rect, but never the layout size.
+    const width = canvas.clientWidth || this.host.innerWidth;
+    const height = canvas.clientHeight || this.host.innerHeight;
     const dpr = this.host.devicePixelRatio || 1;
     const pixelWidth = Math.max(1, Math.round(width * dpr));
     const pixelHeight = Math.max(1, Math.round(height * dpr));
