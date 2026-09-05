@@ -2,6 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { EffectsSystem } from '../src/render/EffectsSystem';
 
 describe('EffectsSystem', () => {
+  it('gives landings a brief restrained impact without weakening an active clear impact', () => {
+    const effects = new EffectsSystem();
+    const landing = { type: 'blockLanded' as const, block: { id: 1, color: 'sky' as const }, cell: { side: 0, index: 0 } };
+    effects.consume([landing]);
+    expect(effects.snapshot().shake.magnitude).toBeGreaterThan(0);
+    expect(effects.snapshot().shake.magnitude).toBeLessThan(2);
+    effects.update(50); effects.update(20);
+    expect(effects.snapshot().shake).toEqual({ magnitude: 0, remainingMs: 0 });
+    effects.consume([{ type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'sky', chain: 2 }, landing]);
+    expect(effects.snapshot().shake).toEqual({ magnitude: 4, remainingMs: 120 });
+  });
   it('creates finite particles and removes them after their lifetime', () => {
     const effects = new EffectsSystem(() => 0.5);
     effects.consume([

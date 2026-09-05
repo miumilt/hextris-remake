@@ -5,15 +5,19 @@ import { GameRuntime } from './runtime/GameRuntime';
 import { InputController } from './runtime/InputController';
 import { CanvasRenderer } from './render/CanvasRenderer';
 import { EffectsSystem } from './render/EffectsSystem';
+import { ScreenController } from './ui/ScreenController';
 
 document.title = APP_TITLE;
 
 const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas');
-if (!canvas) throw new Error('Game canvas is missing');
+const root = document.querySelector<HTMLElement>('#ui-root');
+if (!canvas || !root) throw new Error('Game canvas or screen root is missing');
 
 const engine = new GameEngine();
-const renderer = new CanvasRenderer(canvas);
 const effects = new EffectsSystem();
+const renderer = new CanvasRenderer(canvas);
+const screens = new ScreenController(root);
+const input = new InputController(window, (command) => engine.enqueue(command));
 let snapshot = engine.getSnapshot();
 let effectsSnapshot = effects.snapshot();
 const runtime = new GameRuntime(engine, {
@@ -31,9 +35,31 @@ const runtime = new GameRuntime(engine, {
     effectsSnapshot = effects.snapshot();
   },
   onResize: (width, height, dpr) => renderer.resize(width, height, dpr),
-  render: (alpha) => renderer.render(snapshot, effectsSnapshot, alpha),
+  render: (alpha) => {
+    renderer.render(snapshot, effectsSnapshot, alpha);
+    screens.render(snapshot.mode, snapshot.score);
+  },
 });
-const input = new InputController(window, (command) => engine.enqueue(command));
+
+const resetSession = (action: () => void): void => {
+  action();
+  effects.reset();
+  effectsSnapshot = effects.snapshot();
+  runtime.resetTiming();
+  runtime.flush();
+};
+const togglePause = (): void => {
+  engine.enqueue({ type: 'togglePause' });
+  runtime.resetTiming();
+  runtime.flush();
+};
+screens.bind({
+  start: () => resetSession(() => engine.start()),
+  restart: () => resetSession(() => engine.restart()),
+  returnToMenu: () => resetSession(() => engine.returnToMenu()),
+  resume: togglePause,
+  togglePause,
+});
 
 Object.assign(window, {
   render_game_to_text: () => runtime.renderGameToText(),
@@ -47,6 +73,7 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     input.stop();
     runtime.stop();
+    screens.destroy();
     delete window.render_game_to_text;
     delete window.advanceTime;
   });

@@ -37,6 +37,25 @@ const playing = (): GameSnapshot => {
 };
 
 describe('CanvasRenderer', () => {
+  it('draws one contracting plate per clear origin before the particle burst without mutating effects', () => {
+    const { renderer, polygons, context } = surface();
+    const fx = new EffectsSystem(() => 0.5);
+    fx.consume([{ type: 'matchCleared', cells: [{ side: 0, index: 0 }, { side: 0, index: 1 }], color: 'teal', chain: 1 }]);
+    fx.update(35);
+    const snapshot = fx.snapshot();
+    const before = JSON.stringify(snapshot);
+    renderer.resize(800, 600, 1);
+    renderer.render(playing(), snapshot, 0);
+    const plates = polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object');
+    expect(plates).toHaveLength(2);
+    expect(plates.flatMap(plate => plate.points.flat()).every(Number.isFinite)).toBe(true);
+    expect(context.scale.mock.calls.some(([x, y]) => x > 0.5 && x < 1 && y === x)).toBe(true);
+    expect(JSON.stringify(snapshot)).toBe(before);
+    polygons.length = 0;
+    fx.update(40);
+    renderer.render(playing(), fx.snapshot(), 0);
+    expect(polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object')).toHaveLength(0);
+  });
   it('scales the backing canvas while keeping CSS world coordinates independent of DPR', () => {
     const { canvas, context, renderer } = surface();
     renderer.resize(800, 600, 2);

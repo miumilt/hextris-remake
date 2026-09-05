@@ -58,6 +58,13 @@ export class GameRuntime {
     this.lastFrameTime = null;
   }
 
+  /** Commit queued commands and publish a fresh frame without consuming simulation time. */
+  public flush(): void {
+    const events = this.engine.update(0);
+    this.options.onEvents?.(events);
+    this.options.render?.(0);
+  }
+
   public advanceRealDelta(ms: number): void {
     if (!Number.isFinite(ms) || ms < 0) return;
     this.stepDuration(Math.min(ms, 250 - this.accumulatorMs));
@@ -119,9 +126,7 @@ export class GameRuntime {
     if (this.host.document.hidden && this.engine.getSnapshot().mode === 'playing') {
       this.engine.enqueue({ type: 'togglePause' });
       // Flush the pause now: hidden tabs may not receive another animation frame.
-      const events = this.engine.update(0);
-      this.options.onEvents?.(events);
-      this.options.render?.(0);
+      this.flush();
     }
   };
 }

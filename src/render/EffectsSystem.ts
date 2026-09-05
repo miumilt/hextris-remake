@@ -97,6 +97,8 @@ export class EffectsSystem {
     for (const event of events) {
       switch (event.type) {
         case 'blockLanded':
+          this.shakeMagnitude = Math.max(this.shakeMagnitude, 1.25);
+          this.shakeRemainingMs = Math.max(this.shakeRemainingMs, 70);
           this.flashes.push({
             ...this.cellPosition(event.cell, center, orientation),
             color: event.block.color,

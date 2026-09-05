@@ -256,8 +256,26 @@ export class CanvasRenderer {
       this.path(blockQuad(ORIGIN, angle, distance + 2, 3 + life * 8));
       ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill(); ctx.restore();
     }
+    const contracting = new Set<string>();
     for (const particle of effects.particles) {
-      if (particle.ageMs < particle.burstDelayMs) continue;
+      if (particle.ageMs < particle.burstDelayMs) {
+        // Six particles share each cleared plate's origin during the anticipation.
+        // Draw its contracting silhouette once, without retaining game-state ghosts.
+        const key = `${particle.x.toFixed(3)},${particle.y.toFixed(3)},${particle.color}`;
+        if (!contracting.has(key)) {
+          contracting.add(key);
+          const progress = particle.ageMs / particle.burstDelayMs;
+          const scale = 1 - progress * 0.6;
+          ctx.save();
+          ctx.globalAlpha = 1 - progress * 0.7;
+          ctx.translate(particle.x, particle.y);
+          ctx.scale(scale, scale);
+          ctx.translate(-particle.x, -particle.y);
+          this.plate(Math.atan2(particle.y, particle.x), Math.hypot(particle.x, particle.y), particle.color);
+          ctx.restore();
+        }
+        continue;
+      }
       const life = Math.max(0, 1 - particle.ageMs / particle.lifetimeMs);
       ctx.save(); ctx.translate(particle.x, particle.y); ctx.rotate(particle.rotation);
       ctx.globalAlpha = life;

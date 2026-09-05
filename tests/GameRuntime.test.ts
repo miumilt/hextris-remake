@@ -6,6 +6,28 @@ import { GameRuntime } from '../src/runtime/GameRuntime';
 afterEach(() => vi.restoreAllMocks());
 
 describe('GameRuntime', () => {
+  it('flushes commands and synchronizes consumers immediately without advancing time', () => {
+    const game = new GameEngine({ spawning: false });
+    game.start();
+    let mode = 'menu';
+    const order: string[] = [];
+    const runtime = new GameRuntime(game, {
+      onEvents: () => { mode = game.getSnapshot().mode; order.push('events'); },
+      render: () => order.push(mode),
+    });
+    runtime.advanceTime(10);
+    order.length = 0;
+    game.enqueue({ type: 'togglePause' });
+    runtime.flush();
+    expect(order).toEqual(['events', 'paused']);
+    expect(game.getSnapshot().elapsedMs).toBe(0);
+    game.restart();
+    runtime.resetTiming();
+    runtime.flush();
+    expect(mode).toBe('playing');
+    runtime.advanceTime(10);
+    expect(game.getSnapshot().elapsedMs).toBe(0);
+  });
   it('caps real frames but advances all explicit time, renders once, and rejects invalid time', () => {
     const game = new GameEngine({ spawning: false });
     game.start();
