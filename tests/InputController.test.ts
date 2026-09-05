@@ -68,4 +68,17 @@ describe('InputController', () => {
     await Promise.resolve();
     expect(request).toHaveBeenCalledOnce();
   });
+  it('exits fullscreen with F and handles rejected exits', async () => {
+    setup();
+    const exit = vi.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: document.documentElement });
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
+    cleanups.push(() => {
+      Reflect.deleteProperty(document, 'fullscreenElement');
+      Reflect.deleteProperty(document, 'exitFullscreen');
+    });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f' }));
+    await Promise.resolve();
+    expect(exit).toHaveBeenCalledOnce();
+  });
 });

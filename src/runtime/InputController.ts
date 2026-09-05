@@ -32,9 +32,10 @@ export class InputController {
     } else if (key === 'escape' && !document.fullscreenElement) {
       event.preventDefault();
       this.send({ type: 'togglePause' });
-    } else if (key === 'f' && !document.fullscreenElement) {
+    } else if (key === 'f') {
       // Fullscreen may be unsupported or rejected by browser policy.
-      void document.documentElement.requestFullscreen?.().catch(() => {});
+      if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+      else void document.documentElement.requestFullscreen?.().catch(() => {});
     }
   };
 }
