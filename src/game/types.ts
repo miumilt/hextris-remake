@@ -1,5 +1,12 @@
 import type { BLOCK_COLORS } from './constants';
 
+declare global {
+  interface Window {
+    render_game_to_text?: () => string;
+    advanceTime?: (ms: number) => void;
+  }
+}
+
 export type BlockColor = (typeof BLOCK_COLORS)[number];
 
 export interface GridBlock {

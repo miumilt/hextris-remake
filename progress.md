@@ -7,3 +7,6 @@ HexGrid implemented and verified.
 Match resolution and chain collapse verified.
 Seeded wave patterns and difficulty caps verified.
 Core game loop, score, combo, pause, and game over verified.
+Keyboard, lifecycle, fixed-step loop, and automation hooks verified.
+Task 6: Runtime accepts render(alpha), onEvents(events), onStep(ms), and onResize(width, height, dpr) callbacks. Call resetTiming() with engine session resets. Main composes the menu-state engine/input/runtime and disposes listeners/RAF on Vite HMR.
+Task 6 verification: 37 tests passed; typecheck and build passed. Supplied browser client ran with bundled Playwright and installed Edge; menu JSON, hooks, DPR canvas sizing, and blank pre-renderer shell verified. Existing /favicon.ico 404 remains for Task 9 index polish. Renderer/gameplay visual QA awaits Tasks 7–9.
