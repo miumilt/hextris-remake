@@ -62,6 +62,42 @@ describe('GameRuntime', () => {
     expect(state.elapsedMs).toBeCloseTo(1000);
     expect(state.stacks).toEqual([]);
   });
+  it('delivers empty events before each step and render with current movement, rotation, and pause state', () => {
+    const game = new GameEngine({ spawning: false });
+    game.start();
+    game.debugSpawn({ lane: 0, color: 'sky', speed: 120 });
+    let snapshot = game.getSnapshot();
+    const order: string[] = [];
+    const observed: { mode: string; orientation: number; distance: number }[] = [];
+    const runtime = new GameRuntime(game, {
+      onEvents: (events) => {
+        order.push(`events:${events.length}`);
+        snapshot = game.getSnapshot();
+      },
+      onStep: () => {
+        order.push(`step:${snapshot.mode}`);
+      },
+      render: () => {
+        order.push(`render:${snapshot.mode}`);
+        observed.push({ mode: snapshot.mode, orientation: snapshot.orientation, distance: snapshot.falling[0]!.distance });
+      },
+    });
+    runtime.advanceTime(FIXED_STEP_MS);
+    game.enqueue({ type: 'rotate', steps: 1 });
+    runtime.advanceTime(FIXED_STEP_MS);
+    game.enqueue({ type: 'togglePause' });
+    runtime.advanceTime(FIXED_STEP_MS);
+    expect(order).toEqual([
+      'events:0', 'step:playing', 'render:playing',
+      'events:0', 'step:playing', 'render:playing',
+      'events:0', 'step:paused', 'render:paused',
+    ]);
+    expect(observed).toEqual([
+      { mode: 'playing', orientation: 0, distance: 518 },
+      { mode: 'playing', orientation: 1, distance: 516 },
+      { mode: 'paused', orientation: 1, distance: 516 },
+    ]);
+  });
   it('resets fractional time when starting a new session', () => {
     const game = new GameEngine({ spawning: false });
     game.start();

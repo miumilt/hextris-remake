@@ -26,6 +26,7 @@ const runtime = new GameRuntime(engine, {
     effectsSnapshot = effects.snapshot();
   },
   onStep: (ms) => {
+    snapshot = engine.getSnapshot();
     if (snapshot.mode !== 'paused') effects.update(ms);
     effectsSnapshot = effects.snapshot();
   },
