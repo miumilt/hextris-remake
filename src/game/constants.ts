@@ -7,6 +7,12 @@ export const BLOCK_DEPTH = 24;
 export const START_DISTANCE = 520;
 export const MAX_STACK_DEPTH = 12;
 export const COMBO_WINDOW_MS = 1200;
+export const CYCLE_DURATION_MS = 55_000;
+export const FLOW_END_MS = 30_000;
+export const PRESSURE_END_MS = 45_000;
+export const ANOMALY_WARNING_MS = 1_000;
+export const MAX_FALL_SPEED = 780;
+export const MIN_WAVE_INTERVAL_MS = 320;
 
 export const VISUAL_COLORS = {
   background: '#171918',
