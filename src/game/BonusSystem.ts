@@ -89,9 +89,11 @@ export class BonusSystem {
     return this.activation(type, cells, color);
   }
 
-  public update(deltaMs: number): void {
+  public update(deltaMs: number): number {
     if (deltaMs < 0) throw new RangeError('deltaMs must not be negative');
+    const slowedMs = Math.min(deltaMs, this.slowRemainingMs);
     this.slowRemainingMs = Math.max(0, this.slowRemainingMs - deltaMs);
+    return slowedMs * SLOW_MOTION_MULTIPLIER + (deltaMs - slowedMs);
   }
 
   public getMotionMultiplier(): number {

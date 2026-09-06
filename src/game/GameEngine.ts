@@ -102,12 +102,12 @@ export class GameEngine {
     this.applyQueuedCommands(events);
     if (this.mode !== 'playing') return Object.freeze(events);
 
-    this.elapsedMs += deltaMs;
     const modifiers = this.upgrades.getModifiers();
     const directorTick = this.director.update(deltaMs, modifiers);
+    const activeDeltaMs = directorTick.consumedMs;
+    this.elapsedMs += activeDeltaMs;
     events.push(...directorTick.events);
-    this.bonuses.update(deltaMs);
-    const motionDeltaMs = deltaMs * this.bonuses.getMotionMultiplier();
+    const motionDeltaMs = this.bonuses.update(activeDeltaMs);
     const profile = this.director.getWaveProfile();
     const spawnSpeed = profile.speed * modifiers.speedMultiplier;
     if (directorTick.bonusDue) this.scheduleBonus(spawnSpeed, events);

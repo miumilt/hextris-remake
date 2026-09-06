@@ -44,6 +44,7 @@ export interface WaveProfile {
   readonly speed: number;
   readonly patternWeights: Readonly<Record<WavePattern, number>>;
   readonly forcedPattern: WavePattern | null;
+  readonly forcedPatternSequence: readonly WavePattern[] | null;
 }
 
 export type DirectorEvent =
@@ -57,6 +58,7 @@ export interface DirectorTick {
   readonly events: readonly DirectorEvent[];
   readonly bonusDue: boolean;
   readonly upgradeDue: boolean;
+  readonly consumedMs: number;
 }
 
 export interface ActiveAnomaly {

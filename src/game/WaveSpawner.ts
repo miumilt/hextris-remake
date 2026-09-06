@@ -53,6 +53,8 @@ function buildPattern(pattern: WavePattern, anchor: number, colorIndexes: readon
 export class WaveSpawner {
   private intervalElapsedMs = 0;
   private pending: PatternEntry[] = [];
+  private forcedSequenceActive = false;
+  private forcedSequenceIndex = 0;
 
   public constructor(private readonly random: RandomSource) {}
 
@@ -65,14 +67,37 @@ export class WaveSpawner {
   }
 
   public update(deltaMs: number, profile: WaveProfile): readonly SpawnRequest[] {
-    const ready = this.releaseReady(deltaMs, profile.speed);
-    this.intervalElapsedMs += deltaMs;
-    while (this.intervalElapsedMs >= profile.intervalMs) {
-      this.intervalElapsedMs -= profile.intervalMs;
-      this.scheduleWave(profile);
+    if (deltaMs < 0 || !Number.isFinite(deltaMs)) throw new RangeError('deltaMs must be finite and non-negative');
+    if (profile.intervalMs <= 0 || !Number.isFinite(profile.intervalMs)) {
+      throw new RangeError('intervalMs must be finite and positive');
+    }
+    this.syncForcedSequence(profile);
+
+    const ready = this.releaseReady(0, profile.speed);
+    let remainingMs = deltaMs;
+    while (remainingMs > 0) {
+      const untilWave = profile.intervalMs - this.intervalElapsedMs;
+      const untilPending = this.pending.length === 0
+        ? Number.POSITIVE_INFINITY
+        : Math.min(...this.pending.map((entry) => entry.delayMs));
+      const stepMs = Math.min(remainingMs, untilWave, untilPending);
+
+      if (stepMs > 0) {
+        ready.push(...this.releaseReady(stepMs, profile.speed));
+        this.intervalElapsedMs += stepMs;
+        remainingMs -= stepMs;
+      }
+
+      if (this.intervalElapsedMs >= profile.intervalMs) {
+        this.intervalElapsedMs -= profile.intervalMs;
+        this.scheduleWave(profile);
+        ready.push(...this.releaseReady(0, profile.speed));
+      } else if (stepMs <= 0) {
+        throw new Error('Wave spawner could not advance');
+      }
     }
 
-    return Object.freeze(ready.concat(this.releaseReady(0, profile.speed)));
+    return Object.freeze(ready);
   }
 
   private releaseReady(deltaMs: number, speed: number): SpawnRequest[] {
@@ -93,11 +118,24 @@ export class WaveSpawner {
   }
 
   private scheduleWave(profile: WaveProfile): void {
-    const pattern = profile.forcedPattern ?? this.selectPattern(profile);
+    const sequence = profile.forcedPatternSequence;
+    const pattern = sequence !== null && sequence.length > 0
+      ? sequence[this.forcedSequenceIndex++ % sequence.length]!
+      : profile.forcedPattern ?? this.selectPattern(profile);
     const anchor = Math.floor(this.random.next() * SIDE_COUNT);
     const colorIndexes = OFFSETS[pattern].map(() => Math.floor(this.random.next() * BLOCK_COLORS.length));
 
     this.pending.push(...this.createPattern(pattern, anchor, colorIndexes));
+  }
+
+  private syncForcedSequence(profile: WaveProfile): void {
+    if (profile.forcedPatternSequence === null) {
+      this.forcedSequenceActive = false;
+      this.forcedSequenceIndex = 0;
+    } else if (!this.forcedSequenceActive) {
+      this.forcedSequenceActive = true;
+      this.forcedSequenceIndex = 0;
+    }
   }
 
   private selectPattern(profile: WaveProfile): WavePattern {

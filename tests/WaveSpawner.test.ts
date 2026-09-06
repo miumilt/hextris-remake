@@ -8,6 +8,7 @@ const profile = (overrides: Partial<WaveProfile> = {}): WaveProfile => ({
   speed: 200,
   patternWeights: { single: 1, pair: 0, opposite: 0, halfCircle: 0, circle: 0, spiral: 0 },
   forcedPattern: null,
+  forcedPatternSequence: null,
   ...overrides,
 });
 
@@ -72,5 +73,21 @@ describe('WaveSpawner', () => {
     }));
 
     expect(spawned).toHaveLength(3);
+  });
+
+  it('advances an authored surge sequence once per scheduled wave independent of update chunks', () => {
+    const surge = profile({
+      intervalMs: 160,
+      forcedPattern: 'opposite',
+      forcedPatternSequence: ['opposite', 'halfCircle', 'spiral', 'circle'],
+    });
+    const run = (steps: readonly number[]) => {
+      const spawner = new WaveSpawner({ next: () => 0 });
+      return steps.flatMap((step) => spawner.update(step, surge));
+    };
+
+    const expectedLanes = [0, 3, 0, 1, 2, 0, 1, 0, 1, 2, 3, 4, 5];
+    expect(run([640])).toEqual(run([160, 160, 160, 160]));
+    expect(run([640]).map((request) => request.lane)).toEqual(expectedLanes);
   });
 });

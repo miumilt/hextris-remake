@@ -281,6 +281,46 @@ describe('GameEngine endless progression', () => {
     expect(run([100, 100, 100, 100])).toEqual(run([50, 50, 50, 50, 50, 50, 50, 50]));
   });
 
+  it('consumes only time through the upgrade boundary for large and split updates', () => {
+    const run = (steps: readonly number[]) => {
+      const game = new GameEngine({
+        spawning: false,
+        cycle: { flowMs: 30, pressureMs: 15, surgeMs: 10 },
+      });
+      game.start();
+      game.debugSpawn({ lane: 0, color: 'coral', speed: 1_000 });
+      steps.forEach((step) => game.update(step));
+      return game.getSnapshot();
+    };
+
+    const large = run([5_000]);
+    const split = run([55, 4_945]);
+
+    expect(large).toEqual(split);
+    expect(large.elapsedMs).toBe(55);
+    expect(large.falling[0]?.distance).toBe(465);
+  });
+
+  it('integrates SLOW motion identically in one update or across its expiry boundary', () => {
+    const run = (steps: readonly number[]) => {
+      const game = progressionGame(3);
+      game.start();
+      game.update(40_845); // Seed 3 stores SLOW.
+      game.enqueue({ type: 'activateBonus' });
+      game.update(0);
+      game.debugSpawn({ lane: 0, color: 'coral', speed: 10 });
+      steps.forEach((step) => game.update(step));
+      return game.getSnapshot();
+    };
+
+    const large = run([6_000]);
+    const split = run([2_000, 2_000, 2_000]);
+
+    expect(large).toEqual(split);
+    expect(large.falling[0]?.distance).toBe(487);
+    expect(large.bonus.slowRemainingMs).toBe(0);
+  });
+
   it('validates every explicit grid removal before mutating and freezes returned blocks', () => {
     const grid = new HexGrid();
     grid.attach(0, { id: 1, color: 'coral' });

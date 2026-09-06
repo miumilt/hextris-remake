@@ -49,6 +49,15 @@ describe('CycleDirector', () => {
     expect(director.getSnapshot()).toMatchObject({ number: 2, phase: 'flow', elapsedMs: 0 });
   });
 
+  it('reports only the active time consumed through an upgrade boundary', () => {
+    const director = new CycleDirector(new SeededRandom(17), {
+      flowMs: 30, pressureMs: 15, surgeMs: 10,
+    });
+
+    expect(director.update(5_000, NO_MODIFIERS).consumedMs).toBe(55);
+    expect(director.update(4_945, NO_MODIFIERS).consumedMs).toBe(0);
+  });
+
   it('uses the continuous speed curve and interval floor after long active play', () => {
     const director = new CycleDirector(new SequenceRandom([]));
 
@@ -240,7 +249,7 @@ describe('CycleDirector', () => {
     expect(director.getWaveProfile().patternWeights.single).not.toBe(99);
   });
 
-  it('uses the exact cycle weight tiers and cycles authored surge patterns by spawn beat', () => {
+  it('uses exact weight tiers and exposes an immutable surge sequence without advancing on profile reads', () => {
     const director = new CycleDirector(new SequenceRandom([]));
 
     expect(director.getWaveProfile().patternWeights).toEqual({
@@ -261,7 +270,12 @@ describe('CycleDirector', () => {
 
     director.update(45_000, NO_MODIFIERS);
     expect(Array.from({ length: 5 }, () => director.getWaveProfile().forcedPattern)).toEqual([
-      'opposite', 'halfCircle', 'spiral', 'circle', 'opposite',
+      'opposite', 'opposite', 'opposite', 'opposite', 'opposite',
     ]);
+    const surgeProfile = director.getWaveProfile();
+    expect(surgeProfile.forcedPatternSequence).toEqual([
+      'opposite', 'halfCircle', 'spiral', 'circle',
+    ]);
+    expect(Object.isFrozen(surgeProfile.forcedPatternSequence)).toBe(true);
   });
 });

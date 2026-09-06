@@ -46,7 +46,7 @@ const COMPATIBLE_ANOMALY_PAIRS: readonly (readonly [AnomalyType, AnomalyType])[]
   ['drift', 'inertia'],
   ['colorShift', 'inertia'],
 ];
-const SURGE_PATTERNS: readonly WavePattern[] = ['opposite', 'halfCircle', 'spiral', 'circle'];
+const SURGE_PATTERNS: readonly WavePattern[] = Object.freeze(['opposite', 'halfCircle', 'spiral', 'circle']);
 const PATTERN_WEIGHTS: readonly {
   readonly throughCycle: number;
   readonly weights: Readonly<Record<WavePattern, number>>;
@@ -83,7 +83,6 @@ export class CycleDirector {
   private warning: AnomalyType[] = [];
   private warningRemainingMs = 0;
   private anomalies: MutableAnomaly[] = [];
-  private surgePatternBeat = 0;
 
   public constructor(private readonly random: RandomSource, options: CycleDirectorOptions = {}) {
     const flowMs = options.flowMs ?? FLOW_END_MS;
@@ -131,7 +130,7 @@ export class CycleDirector {
       bonusDue ||= boundaryBonusDue;
     }
 
-    return this.frozenTick(events, bonusDue, this.awaitingUpgrade);
+    return this.frozenTick(events, bonusDue, this.awaitingUpgrade, deltaMs - remainingMs);
   }
 
   public getSnapshot(): CycleSnapshot {
@@ -155,9 +154,7 @@ export class CycleDirector {
     const speed = Math.min(MAX_FALL_SPEED, 150 + activeSeconds * 1.5);
     const baseInterval = Math.max(MIN_WAVE_INTERVAL_MS, 2700 * Math.exp(-activeSeconds / 150));
     const phaseMultiplier = this.phase === 'pressure' ? 0.78 : this.phase === 'surge' ? 0.52 : 1;
-    const forcedPattern = this.phase === 'surge'
-      ? SURGE_PATTERNS[this.surgePatternBeat++ % SURGE_PATTERNS.length]!
-      : null;
+    const forcedPattern = this.phase === 'surge' ? SURGE_PATTERNS[0]! : null;
     const weights = PATTERN_WEIGHTS.find((entry) => this.cycleNumber <= entry.throughCycle)!.weights;
 
     return freeze<WaveProfile>({
@@ -165,6 +162,7 @@ export class CycleDirector {
       speed,
       patternWeights: freeze({ ...weights }),
       forcedPattern,
+      forcedPatternSequence: this.phase === 'surge' ? SURGE_PATTERNS : null,
     });
   }
 
@@ -175,7 +173,6 @@ export class CycleDirector {
     this.phase = 'flow';
     this.elapsedMs = 0;
     this.awaitingUpgrade = false;
-    this.surgePatternBeat = 0;
     this.resetAnomalySchedule();
   }
 
@@ -186,7 +183,6 @@ export class CycleDirector {
     this.totalActiveMs = 0;
     this.awaitingUpgrade = false;
     this.deferredBonus = false;
-    this.surgePatternBeat = 0;
     this.bonusRemainingMs = null;
     this.resetAnomalySchedule();
   }
@@ -241,7 +237,6 @@ export class CycleDirector {
       events.push({ type: 'phaseChanged', phase: this.phase, cycle: this.cycleNumber });
     } else if (this.phase === 'pressure' && this.elapsedMs >= this.pressureEndMs) {
       this.phase = 'surge';
-      this.surgePatternBeat = 0;
       events.push({ type: 'phaseChanged', phase: this.phase, cycle: this.cycleNumber });
     } else if (this.phase === 'surge' && this.elapsedMs >= this.cycleDurationMs) {
       this.awaitingUpgrade = true;
@@ -292,11 +287,16 @@ export class CycleDirector {
     this.deferredBonus = false;
   }
 
-  private frozenTick(events: readonly DirectorEvent[], bonusDue: boolean, upgradeDue: boolean): DirectorTick {
+  private frozenTick(
+    events: readonly DirectorEvent[],
+    bonusDue: boolean,
+    upgradeDue: boolean,
+    consumedMs: number,
+  ): DirectorTick {
     const frozenEvents = freeze(events.map((event) => {
       if ('anomalies' in event) return freeze({ ...event, anomalies: freeze([...event.anomalies]) });
       return freeze({ ...event });
     }));
-    return freeze<DirectorTick>({ events: frozenEvents, bonusDue, upgradeDue });
+    return freeze<DirectorTick>({ events: frozenEvents, bonusDue, upgradeDue, consumedMs });
   }
 }
