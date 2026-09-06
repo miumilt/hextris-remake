@@ -1,8 +1,10 @@
 import {
+  BLOCK_COLORS,
   BLOCK_DEPTH,
   COMBO_WINDOW_MS,
   HEX_APOTHEM,
   MAX_STACK_DEPTH,
+  SIDE_COUNT,
   START_DISTANCE,
 } from './constants';
 import { HexGrid } from './HexGrid';
@@ -22,6 +24,11 @@ import type {
 import { WaveSpawner, type SpawnRequest } from './WaveSpawner';
 import { UpgradeSystem } from './UpgradeSystem';
 import type { FallingBonus, UpgradeChoice } from './progressionTypes';
+
+interface DelayedRotation {
+  readonly steps: -1 | 1;
+  remainingMs: number;
+}
 
 export interface GameEngineOptions {
   readonly randomSeed?: number;
@@ -50,6 +57,7 @@ export class GameEngine {
   private grid: HexGrid;
   private falling: FallingBlock[] = [];
   private spawner: WaveSpawner;
+  private anomalyRandom: SeededRandom;
   private director: CycleDirector;
   private bonuses: BonusSystem;
   private upgrades: UpgradeSystem;
@@ -60,6 +68,7 @@ export class GameEngine {
   private readonly commandQueue: GameCommand[] = [];
   private queuedRotations = 0;
   private pauseQueued = false;
+  private delayedRotations: DelayedRotation[] = [];
   private readonly randomSeed: number;
   private readonly maxStackDepth: number;
   private readonly spawning: boolean;
@@ -72,6 +81,7 @@ export class GameEngine {
     this.cycleOptions = options.cycle ?? {};
     this.grid = new HexGrid(this.maxStackDepth);
     this.spawner = new WaveSpawner(new SeededRandom(this.randomSeed));
+    this.anomalyRandom = new SeededRandom(this.randomSeed ^ 0x414e4f4d);
     this.director = new CycleDirector(new SeededRandom(this.randomSeed ^ 0x4359434c), this.cycleOptions);
     this.bonuses = new BonusSystem(new SeededRandom(this.randomSeed ^ 0x424f4e55));
     this.upgrades = new UpgradeSystem(new SeededRandom(this.randomSeed ^ 0x55504752));
@@ -133,6 +143,12 @@ export class GameEngine {
           this.spawner.getNextEventMs(startProfile) / motionMultiplier,
         );
       }
+      if (this.delayedRotations.length > 0) {
+        requestedMs = Math.min(
+          requestedMs,
+          Math.min(...this.delayedRotations.map((rotation) => rotation.remainingMs)),
+        );
+      }
 
       const directorTick = this.director.update(requestedMs, modifiers);
       const activeDeltaMs = directorTick.consumedMs;
@@ -146,6 +162,7 @@ export class GameEngine {
       this.elapsedMs = canonicalMs(this.elapsedMs + activeDeltaMs);
       const motionDeltaMs = this.bonuses.update(activeDeltaMs);
       this.motionElapsedMs = canonicalMs(this.motionElapsedMs + motionDeltaMs);
+      this.advanceDelayedRotations(activeDeltaMs);
       const profile = this.director.getWaveProfile();
       const spawnSpeed = profile.speed * modifiers.speedMultiplier;
       if (directorTick.bonusDue) this.scheduleBonus(spawnSpeed, events);
@@ -208,6 +225,7 @@ export class GameEngine {
     this.grid = new HexGrid(this.maxStackDepth);
     this.falling = [];
     this.spawner = new WaveSpawner(new SeededRandom(this.randomSeed));
+    this.anomalyRandom = new SeededRandom(this.randomSeed ^ 0x414e4f4d);
     this.director = new CycleDirector(new SeededRandom(this.randomSeed ^ 0x4359434c), this.cycleOptions);
     this.bonuses = new BonusSystem(new SeededRandom(this.randomSeed ^ 0x424f4e55));
     this.upgrades = new UpgradeSystem(new SeededRandom(this.randomSeed ^ 0x55504752));
@@ -218,12 +236,23 @@ export class GameEngine {
     this.commandQueue.length = 0;
     this.queuedRotations = 0;
     this.pauseQueued = false;
+    this.delayedRotations = [];
   }
 
   private applyQueuedCommands(events: GameEvent[]): void {
     for (const command of this.commandQueue) {
       if (command.type === 'rotate') {
-        if (this.mode === 'playing') this.grid.rotate(command.steps);
+        if (this.mode === 'playing') {
+          if (this.hasActiveAnomaly('inertia')) {
+            this.delayedRotations.push({ steps: command.steps, remainingMs: 180 });
+            events.push(Object.freeze({ type: 'rotationDelayed', steps: command.steps, remainingMs: 180 }));
+          } else {
+            const steps = this.hasActiveAnomaly('reverse')
+              ? (-command.steps as -1 | 1)
+              : command.steps;
+            this.grid.rotate(steps);
+          }
+        }
         continue;
       }
       if (command.type === 'togglePause') {
@@ -302,16 +331,58 @@ export class GameEngine {
   }
 
   private spawn(requests: readonly SpawnRequest[]): void {
+    const active = new Set(this.director.getSnapshot().anomalies.map((anomaly) => anomaly.type));
     for (const request of requests) {
-      const block = {
+      let block: FallingBlock = {
         ...this.createBlock(request.color),
         lane: request.lane,
         distance: START_DISTANCE,
         speed: request.speed,
       };
+      if (active.has('drift')) {
+        block = {
+          ...block,
+          driftToLane: this.adjacentLane(request.lane),
+          driftProgress: 0,
+        };
+      }
+      if (active.has('colorShift')) {
+        const colors = BLOCK_COLORS.filter((color) => color !== request.color);
+        block = {
+          ...block,
+          shiftToColor: colors[Math.floor(this.anomalyRandom.next() * colors.length)]!,
+          shiftAtDistance: 260,
+        };
+      }
+      if (active.has('mirage')) {
+        block = {
+          ...block,
+          mirageLane: this.adjacentLane(request.lane),
+          mirageVisible: true,
+        };
+      }
       this.falling.push(block);
       this.fallingBornAt.set(block.id, this.motionElapsedMs);
     }
+  }
+
+  private adjacentLane(lane: number): number {
+    const direction = this.anomalyRandom.next() < 0.5 ? -1 : 1;
+    return ((lane + direction) % SIDE_COUNT + SIDE_COUNT) % SIDE_COUNT;
+  }
+
+  private hasActiveAnomaly(type: 'reverse' | 'inertia'): boolean {
+    return this.director.getSnapshot().anomalies.some((anomaly) => anomaly.type === type);
+  }
+
+  private advanceDelayedRotations(deltaMs: number): void {
+    const pending: DelayedRotation[] = [];
+    for (const rotation of this.delayedRotations) {
+      rotation.remainingMs = canonicalMs(rotation.remainingMs - deltaMs);
+      if (rotation.remainingMs <= 0) this.grid.rotate(rotation.steps);
+      else pending.push(rotation);
+    }
+    this.delayedRotations = pending;
   }
 
   private scheduleBonus(speed: number, events: GameEvent[]): void {
@@ -354,18 +425,43 @@ export class GameEngine {
     const stillFalling: FallingBlock[] = [];
 
     for (const block of this.falling) {
-      const side = this.grid.laneToSide(block.lane);
+      const distance = START_DISTANCE - (
+        block.speed * (this.motionElapsedMs - (this.fallingBornAt.get(block.id) ?? this.motionElapsedMs))
+      ) / 1000;
+      let moved: FallingBlock = { ...block, distance };
+      if (block.driftToLane !== undefined) {
+        moved = {
+          ...moved,
+          driftProgress: Math.max(0, Math.min(1, (360 - distance) / 160)),
+        };
+      }
+      if (block.mirageLane !== undefined) {
+        moved = { ...moved, mirageVisible: distance > 180 };
+      }
+      if (
+        block.shiftToColor !== undefined
+        && block.shiftAtDistance !== undefined
+        && block.distance > block.shiftAtDistance
+        && distance <= block.shiftAtDistance
+      ) {
+        moved = { ...moved, color: block.shiftToColor };
+        events.push(Object.freeze({
+          type: 'blockColorShifted',
+          blockId: block.id,
+          fromColor: block.color,
+          toColor: block.shiftToColor,
+        }));
+      }
+
+      const collisionLane = moved.driftProgress === 1 && moved.driftToLane !== undefined
+        ? moved.driftToLane
+        : moved.lane;
+      const side = this.grid.laneToSide(collisionLane);
       const stackLength = this.grid.snapshot()[side]!.length;
       const landingDistance = HEX_APOTHEM + stackLength * BLOCK_DEPTH;
-      const moved = {
-        ...block,
-        distance: START_DISTANCE - (
-          block.speed * (this.motionElapsedMs - (this.fallingBornAt.get(block.id) ?? this.motionElapsedMs))
-        ) / 1000,
-      };
 
       if (moved.distance <= landingDistance) {
-        const attached: GridBlock = Object.freeze({ id: block.id, color: block.color });
+        const attached: GridBlock = Object.freeze({ id: moved.id, color: moved.color });
         const cell = Object.freeze(this.grid.attach(side, attached));
         this.fallingBornAt.delete(block.id);
         events.push(Object.freeze({ type: 'blockLanded', block: attached, cell }));

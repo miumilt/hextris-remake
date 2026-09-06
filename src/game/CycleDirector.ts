@@ -26,7 +26,7 @@ export interface CycleDirectorOptions {
   readonly forcedAnomaliesByCycle?: Readonly<Record<number, readonly AnomalyType[]>>;
 }
 
-const ANOMALY_DURATIONS_MS: Readonly<Record<AnomalyType, number>> = {
+export const ANOMALY_DURATION_MS: Readonly<Record<AnomalyType, number>> = {
   reverse: 9_000,
   mirage: 10_000,
   drift: 12_000,
@@ -226,7 +226,7 @@ export class CycleDirector {
     } else if (this.warning.length > 0 && this.warningRemainingMs <= 0) {
       this.anomalies = this.warning.map((type) => ({
         type,
-        remainingMs: ANOMALY_DURATIONS_MS[type] * modifiers.anomalyDurationMultiplier,
+        remainingMs: Math.max(4_000, ANOMALY_DURATION_MS[type] * modifiers.anomalyDurationMultiplier),
       }));
       this.warning = [];
       events.push({ type: 'anomalyStarted', anomalies: this.anomalies.map((anomaly) => anomaly.type) });

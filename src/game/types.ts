@@ -33,6 +33,12 @@ export interface FallingBlock extends GridBlock {
   readonly lane: number;
   readonly distance: number;
   readonly speed: number;
+  readonly driftToLane?: number;
+  readonly driftProgress?: number;
+  readonly shiftToColor?: BlockColor;
+  readonly shiftAtDistance?: number;
+  readonly mirageLane?: number;
+  readonly mirageVisible?: boolean;
 }
 
 export type GameMode = 'menu' | 'playing' | 'paused' | 'upgrade' | 'gameOver';
@@ -47,6 +53,13 @@ export type GameCommand =
 export type GameEvent =
   | DirectorEvent
   | { readonly type: 'blockLanded'; readonly block: GridBlock; readonly cell: CellRef }
+  | {
+      readonly type: 'blockColorShifted';
+      readonly blockId: number;
+      readonly fromColor: BlockColor;
+      readonly toColor: BlockColor;
+    }
+  | { readonly type: 'rotationDelayed'; readonly steps: -1 | 1; readonly remainingMs: number }
   | {
       readonly type: 'matchCleared';
       readonly cells: readonly CellRef[];

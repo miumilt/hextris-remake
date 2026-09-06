@@ -55,3 +55,4 @@ Cycle director and externally driven wave pressure verified.
 Seeded run-only upgrades and modifier caps verified.
 One-slot deterministic bonus inventory and targeting verified.
 Engine cycle, token, upgrade, bonus, and rescue integration verified.
+Telegraphed reverse, mirage, drift, color-shift, and inertia mechanics verified.

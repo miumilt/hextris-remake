@@ -139,6 +139,27 @@ describe('CycleDirector', () => {
     });
   });
 
+  it('floors each shield-scaled anomaly at four seconds independently', () => {
+    const director = new CycleDirector(new SequenceRandom([0, 0]), {
+      forcedAnomaliesByCycle: { 2: ['inertia', 'drift'] },
+    });
+    const strongShield: DirectorModifiers = {
+      anomalyDurationMultiplier: 0.1,
+      bonusIntervalMultiplier: 1,
+    };
+
+    advanceToCycle(director, 2);
+    director.update(21_000, strongShield);
+
+    expect(director.getSnapshot().anomalies).toEqual([
+      { type: 'inertia', remainingMs: 4_000 },
+      { type: 'drift', remainingMs: 4_000 },
+    ]);
+    expect(director.update(4_000, strongShield).events).toContainEqual({
+      type: 'anomalyEnded', anomalies: ['inertia', 'drift'],
+    });
+  });
+
   it('keeps the salvage-modified bonus interval at the sixteen-second floor', () => {
     const director = new CycleDirector(new SequenceRandom([0]));
     const salvageModifiers: DirectorModifiers = {
