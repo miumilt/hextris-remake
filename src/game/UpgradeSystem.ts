@@ -1,0 +1,111 @@
+import type { UpgradeChoice, UpgradeId, UpgradeModifiers, UpgradeOffer, UpgradeSnapshot } from './progressionTypes';
+import type { RandomSource } from './random';
+
+const DEFINITIONS: Readonly<Record<UpgradeId, Omit<UpgradeChoice, 'level'>>> = {
+  stabilizer: { id: 'stabilizer', maxLevel: 3, label: 'STABILIZER', description: 'FALL SPEED -4%' },
+  comboRelay: { id: 'comboRelay', maxLevel: 3, label: 'COMBO RELAY', description: 'COMBO WINDOW +300MS' },
+  salvage: { id: 'salvage', maxLevel: 3, label: 'SALVAGE', description: 'BONUS ARRIVAL +15%' },
+  deepPulse: { id: 'deepPulse', maxLevel: 2, label: 'DEEP PULSE', description: 'PULSE HITS +1 SIDE' },
+  anomalyShield: { id: 'anomalyShield', maxLevel: 3, label: 'ANOMALY SHIELD', description: 'ANOMALY TIME -15%' },
+  lastStand: { id: 'lastStand', maxLevel: 1, label: 'LAST STAND', description: 'SURVIVE ONE OVERFLOW' },
+};
+
+const UPGRADE_IDS: readonly UpgradeId[] = [
+  'stabilizer', 'comboRelay', 'salvage', 'deepPulse', 'anomalyShield', 'lastStand',
+];
+
+function freeze<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(value);
+}
+
+function initialLevels(): Record<UpgradeId, number> {
+  return {
+    stabilizer: 0,
+    comboRelay: 0,
+    salvage: 0,
+    deepPulse: 0,
+    anomalyShield: 0,
+    lastStand: 0,
+  };
+}
+
+export class UpgradeSystem {
+  private levels = initialLevels();
+  private choices: readonly UpgradeChoice[] = [];
+  private selectedIndex = 0;
+
+  public constructor(private readonly random: RandomSource) {}
+
+  public offer(): UpgradeOffer | null {
+    if (this.choices.length > 0) return this.currentOffer();
+
+    const available = UPGRADE_IDS.filter((id) => this.levels[id] < DEFINITIONS[id].maxLevel);
+    if (available.length === 0) return null;
+
+    const count = Math.min(2, available.length);
+    const choices: UpgradeChoice[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const selected = Math.min(available.length - 1, Math.floor(this.random.next() * available.length));
+      const id = available.splice(selected, 1)[0]!;
+      choices.push(freeze({ ...DEFINITIONS[id], level: this.levels[id] }));
+    }
+
+    this.choices = freeze(choices);
+    this.selectedIndex = 0;
+    return this.currentOffer();
+  }
+
+  public moveSelection(steps: number): void {
+    if (this.choices.length === 0 || !Number.isFinite(steps)) return;
+    this.selectedIndex = Math.max(0, Math.min(this.choices.length - 1, this.selectedIndex + Math.trunc(steps)));
+  }
+
+  public confirm(): UpgradeId | null {
+    const selected = this.choices[this.selectedIndex];
+    if (!selected) return null;
+
+    this.levels[selected.id] += 1;
+    this.choices = [];
+    this.selectedIndex = 0;
+    return selected.id;
+  }
+
+  public getSnapshot(): UpgradeSnapshot {
+    return freeze<UpgradeSnapshot>({
+      levels: freeze({ ...this.levels }),
+      choices: freeze([...this.choices]),
+      selectedIndex: this.selectedIndex,
+    });
+  }
+
+  public getModifiers(): UpgradeModifiers {
+    const levels = this.levels;
+    return freeze<UpgradeModifiers>({
+      speedMultiplier: 1 - levels.stabilizer * 0.04,
+      comboWindowBonusMs: levels.comboRelay * 300,
+      bonusIntervalMultiplier: 1 - levels.salvage * 0.15,
+      pulseSides: 3 + levels.deepPulse,
+      anomalyDurationMultiplier: Math.max(4_000 / 8_000, 1 - levels.anomalyShield * 0.15),
+      hasLastStand: levels.lastStand > 0,
+    });
+  }
+
+  public consumeLastStand(): boolean {
+    if (this.levels.lastStand === 0) return false;
+    this.levels.lastStand = 0;
+    return true;
+  }
+
+  public reset(): void {
+    this.levels = initialLevels();
+    this.choices = [];
+    this.selectedIndex = 0;
+  }
+
+  private currentOffer(): UpgradeOffer {
+    return freeze<UpgradeOffer>({
+      choices: freeze([...this.choices]),
+      selectedIndex: this.selectedIndex,
+    });
+  }
+}

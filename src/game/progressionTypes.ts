@@ -6,6 +6,34 @@ export type AnomalyType = 'reverse' | 'mirage' | 'drift' | 'colorShift' | 'inert
 export type BonusType = 'slow' | 'pulse' | 'cleanse' | 'colorBreak';
 export type UpgradeId = 'stabilizer' | 'comboRelay' | 'salvage' | 'deepPulse' | 'anomalyShield' | 'lastStand';
 
+export interface UpgradeChoice {
+  readonly id: UpgradeId;
+  readonly level: number;
+  readonly maxLevel: number;
+  readonly label: string;
+  readonly description: string;
+}
+
+export interface UpgradeSnapshot {
+  readonly levels: Readonly<Record<UpgradeId, number>>;
+  readonly choices: readonly UpgradeChoice[];
+  readonly selectedIndex: number;
+}
+
+export interface UpgradeModifiers {
+  readonly speedMultiplier: number;
+  readonly comboWindowBonusMs: number;
+  readonly bonusIntervalMultiplier: number;
+  readonly pulseSides: number;
+  readonly anomalyDurationMultiplier: number;
+  readonly hasLastStand: boolean;
+}
+
+export interface UpgradeOffer {
+  readonly choices: readonly UpgradeChoice[];
+  readonly selectedIndex: number;
+}
+
 export interface DirectorModifiers {
   readonly anomalyDurationMultiplier: number;
   readonly bonusIntervalMultiplier: number;
