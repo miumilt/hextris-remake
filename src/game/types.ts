@@ -1,4 +1,14 @@
 import type { BLOCK_COLORS } from './constants';
+import type {
+  BonusSnapshot,
+  BonusType,
+  CycleSnapshot,
+  DirectorEvent,
+  FallingBonus,
+  UpgradeChoice,
+  UpgradeId,
+  UpgradeSnapshot,
+} from './progressionTypes';
 
 declare global {
   interface Window {
@@ -25,13 +35,17 @@ export interface FallingBlock extends GridBlock {
   readonly speed: number;
 }
 
-export type GameMode = 'menu' | 'playing' | 'paused' | 'gameOver';
+export type GameMode = 'menu' | 'playing' | 'paused' | 'upgrade' | 'gameOver';
 
 export type GameCommand =
-  | { type: 'rotate'; steps: -1 | 1 }
-  | { type: 'togglePause' };
+  | { readonly type: 'rotate'; readonly steps: -1 | 1 }
+  | { readonly type: 'togglePause' }
+  | { readonly type: 'activateBonus' }
+  | { readonly type: 'selectUpgrade'; readonly steps: -1 | 1 }
+  | { readonly type: 'confirmUpgrade' };
 
 export type GameEvent =
+  | DirectorEvent
   | { readonly type: 'blockLanded'; readonly block: GridBlock; readonly cell: CellRef }
   | {
       readonly type: 'matchCleared';
@@ -40,6 +54,26 @@ export type GameEvent =
       readonly chain: number;
     }
   | { readonly type: 'comboChanged'; readonly multiplier: number }
+  | { readonly type: 'bonusScheduled'; readonly bonus: FallingBonus }
+  | { readonly type: 'bonusCollected'; readonly bonus: BonusType }
+  | { readonly type: 'bonusReplaced'; readonly previous: BonusType; readonly replacement: BonusType }
+  | { readonly type: 'bonusActivated'; readonly bonus: BonusType }
+  | {
+      readonly type: 'bonusRemoved';
+      readonly bonus: BonusType;
+      readonly cells: readonly CellRef[];
+      readonly blocks: readonly GridBlock[];
+      readonly scoreDelta: number;
+    }
+  | { readonly type: 'upgradeOffered'; readonly choices: readonly UpgradeChoice[]; readonly selectedIndex: number }
+  | { readonly type: 'upgradeSelectionChanged'; readonly selectedIndex: number }
+  | { readonly type: 'upgradeSelected'; readonly upgrade: UpgradeId; readonly level: number }
+  | {
+      readonly type: 'lastStand';
+      readonly side: number;
+      readonly cells: readonly CellRef[];
+      readonly blocks: readonly GridBlock[];
+    }
   | { readonly type: 'gameOver'; readonly score: number };
 
 export interface GameSnapshot {
@@ -49,5 +83,9 @@ export interface GameSnapshot {
   readonly orientation: number;
   readonly stacks: readonly (readonly GridBlock[])[];
   readonly falling: readonly FallingBlock[];
+  readonly cycle: CycleSnapshot;
+  readonly bonus: BonusSnapshot;
+  readonly fallingBonuses: readonly FallingBonus[];
+  readonly upgrades: UpgradeSnapshot;
   readonly elapsedMs: number;
 }

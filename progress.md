@@ -54,3 +54,4 @@ Browser fix evidence: `node test-artifacts/capture-entry.mjs` observed red at in
 Cycle director and externally driven wave pressure verified.
 Seeded run-only upgrades and modifier caps verified.
 One-slot deterministic bonus inventory and targeting verified.
+Engine cycle, token, upgrade, bonus, and rescue integration verified.

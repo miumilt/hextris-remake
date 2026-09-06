@@ -33,6 +33,23 @@ export class HexGrid {
     }
   }
 
+  public remove(cells: readonly CellRef[]): readonly GridBlock[] {
+    const keys = new Set<string>();
+    const validated = cells.map(({ side, index }) => {
+      if (!Number.isInteger(side) || side < 0 || side >= SIDE_COUNT) throw new RangeError('Invalid side');
+      if (!Number.isInteger(index) || index < 0 || index >= this.stacks[side]!.length) {
+        throw new RangeError('Invalid index');
+      }
+      const key = `${side}:${index}`;
+      if (keys.has(key)) throw new Error('Duplicate cell');
+      keys.add(key);
+      return { side, index };
+    });
+    const removed = validated.map(({ side, index }) => this.stacks[side]![index]!);
+    this.collapse(validated);
+    return Object.freeze(removed.map((block) => Object.freeze({ ...block })));
+  }
+
   public replaceStacks(stacks: readonly (readonly GridBlock[])[]): void {
     if (stacks.length !== SIDE_COUNT) {
       throw new RangeError(`stacks must contain exactly ${SIDE_COUNT} sides`);

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { SeededRandom } from '../src/game/random';
 import { WaveSpawner } from '../src/game/WaveSpawner';
+import type { WaveProfile } from '../src/game/progressionTypes';
+
+const profile = (overrides: Partial<WaveProfile> = {}): WaveProfile => ({
+  intervalMs: 100,
+  speed: 200,
+  patternWeights: { single: 1, pair: 0, opposite: 0, halfCircle: 0, circle: 0, spiral: 0 },
+  forcedPattern: null,
+  ...overrides,
+});
 
 describe('WaveSpawner', () => {
   it('creates the original-style lane patterns', () => {
@@ -27,19 +36,41 @@ describe('WaveSpawner', () => {
     const secondWaves = [];
 
     for (let i = 0; i < 240; i += 1) {
-      firstWaves.push(...first.update(20));
-      secondWaves.push(...second.update(20));
+      firstWaves.push(...first.update(20, profile()));
+      secondWaves.push(...second.update(20, profile()));
     }
 
     expect(firstWaves).toEqual(secondWaves);
   });
 
-  it('never exceeds the configured speed or minimum interval', () => {
+  it('uses an externally supplied interval and speed without calculating its own difficulty', () => {
     const spawner = new WaveSpawner(new SeededRandom(11));
 
-    for (let i = 0; i < 20_000; i += 1) spawner.update(16.6667);
+    expect(spawner.update(99, profile())).toEqual([]);
+    expect(spawner.update(1, profile())).toEqual([
+      expect.objectContaining({ speed: 200 }),
+    ]);
+    expect(spawner.update(100, profile({ speed: 375 }))).toEqual([
+      expect.objectContaining({ speed: 375 }),
+    ]);
+  });
 
-    expect(spawner.intervalMs).toBeGreaterThanOrEqual(600);
-    expect(spawner.speed).toBeLessThanOrEqual(420);
+  it('uses a forced surge pattern verbatim', () => {
+    const spawner = new WaveSpawner(new SeededRandom(11));
+
+    const spawned = spawner.update(100, profile({ forcedPattern: 'circle' }));
+
+    expect(spawned).toHaveLength(6);
+    expect(spawned.map((block) => block.lane).sort()).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('samples only cumulative positive pattern weights', () => {
+    const spawner = new WaveSpawner(new SeededRandom(11));
+
+    const spawned = spawner.update(100, profile({
+      patternWeights: { single: 0, pair: -10, opposite: 0, halfCircle: 3, circle: 0, spiral: 0 },
+    }));
+
+    expect(spawned).toHaveLength(3);
   });
 });

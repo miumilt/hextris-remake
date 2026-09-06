@@ -176,6 +176,20 @@ describe('GameEngine', () => {
       orientation: 0,
       stacks: [[], [], [], [], [], []],
       falling: [],
+      cycle: {
+        number: 1, phase: 'flow', elapsedMs: 0, durationMs: 55_000, progress: 0,
+        warning: [], warningRemainingMs: 0, anomalies: [],
+      },
+      bonus: { stored: null, slowRemainingMs: 0 },
+      fallingBonuses: [],
+      upgrades: {
+        levels: {
+          stabilizer: 0, comboRelay: 0, salvage: 0, deepPulse: 0,
+          anomalyShield: 0, lastStand: 0,
+        },
+        choices: [],
+        selectedIndex: 0,
+      },
       elapsedMs: 0,
     });
     game.returnToMenu();
