@@ -3,6 +3,7 @@ import { CanvasRenderer } from '../src/render/CanvasRenderer';
 import { GameEngine } from '../src/game/GameEngine';
 import { EffectsSystem } from '../src/render/EffectsSystem';
 import type { GameSnapshot } from '../src/game/types';
+import { InputController } from '../src/runtime/InputController';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -40,6 +41,36 @@ const playing = (): GameSnapshot => {
 };
 
 describe('CanvasRenderer', () => {
+  it.each([['ArrowRight', 1], ['d', 1], ['ArrowLeft', -1], ['a', -1]] as const)(
+    '%s moves a top attached plate visibly in the requested direction', (key, horizontalDirection) => {
+      const { renderer, polygons } = surface();
+      const game = new GameEngine({ spawning: false });
+      game.start();
+      game.debugAttachGroup('coral', [{ side: 0, count: 1 }]);
+      const input = new InputController(window, command => game.enqueue(command));
+      const center = () => {
+        const plate = polygons.find(({ points, style }) => points.length === 4 && typeof style === 'object')!;
+        return plate.points.reduce((sum, [x, y]) => [sum[0]! + x! / 4, sum[1]! + y! / 4], [0, 0]);
+      };
+      const draw = () => { polygons.length = 0; renderer.render(game.getSnapshot(), effects(), 0); return center(); };
+      renderer.resize(800, 600, 1);
+      expect(draw()[0]).toBeCloseTo(0);
+      input.start();
+      try {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key }));
+        game.update(0);
+        draw(); // Begin the renderer's actual 120 ms interpolation.
+        game.update(60);
+        const midpoint = draw();
+        expect(midpoint[0]! * horizontalDirection).toBeGreaterThan(0);
+        expect(midpoint[1]).toBeLessThan(0);
+        game.update(60);
+        const end = draw();
+        expect(end[0]! * horizontalDirection).toBeGreaterThan(Math.abs(midpoint[0]!));
+        expect(end[1]).toBeCloseTo(-42); // Top plate center (0, -84) rotated exactly 60 degrees.
+      } finally { input.stop(); }
+    },
+  );
   it('draws a smaller menu hub that can grow into the live field', () => {
     const { renderer, polygons } = surface();
     renderer.resize(1280, 720, 1);

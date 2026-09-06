@@ -15,7 +15,7 @@ function setup() {
 }
 
 describe('InputController', () => {
-  it.each([['ArrowLeft', 5], ['a', 5], ['A', 5], ['ArrowRight', 1], ['d', 1], ['D', 1]] as const)(
+  it.each([['ArrowLeft', 1], ['a', 1], ['A', 1], ['ArrowRight', 5], ['d', 5], ['D', 5]] as const)(
     'maps %s to one rotation and prevents browser navigation', (key, orientation) => {
       const { game } = setup();
       const event = new KeyboardEvent('keydown', { key, cancelable: true });
@@ -33,15 +33,15 @@ describe('InputController', () => {
     expect(game.getSnapshot().orientation).toBe(0);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
     game.update(0);
-    expect(game.getSnapshot().orientation).toBe(1);
+    expect(game.getSnapshot().orientation).toBe(5);
     input.stop();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
     game.update(0);
-    expect(game.getSnapshot().orientation).toBe(1);
+    expect(game.getSnapshot().orientation).toBe(5);
     input.start();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
     game.update(0);
-    expect(game.getSnapshot().orientation).toBe(2);
+    expect(game.getSnapshot().orientation).toBe(4);
   });
   it('pauses and resumes with Escape but leaves fullscreen Escape to the browser', () => {
     const { game } = setup();

@@ -2,6 +2,65 @@ import { describe, expect, it } from 'vitest';
 import { GameEngine } from '../src/game/GameEngine';
 
 describe('GameEngine', () => {
+  it('lands exactly at the occupied stack boundary, but not just before it', () => {
+    const game = new GameEngine({ spawning: false });
+    game.start();
+    game.debugAttachGroup('sky', [{ side: 0, count: 1 }]);
+    game.debugSpawn({ lane: 0, color: 'coral', speed: 1000 });
+    // Spawn at 520, one existing 24-deep plate beyond the 72-unit hub: contact at 96.
+    expect(game.update(423.5)).toEqual([]);
+    expect(game.getSnapshot().falling[0]?.distance).toBe(96.5);
+    expect(game.getSnapshot().stacks[0]).toHaveLength(1);
+    expect(game.update(0.5)).toEqual([
+      { type: 'blockLanded', block: { id: 2, color: 'coral' }, cell: { side: 0, index: 1 } },
+    ]);
+    expect(game.getSnapshot().falling).toEqual([]);
+    expect(game.getSnapshot().stacks[0]).toHaveLength(2);
+  });
+
+  it('clears a landing at the overflow threshold before deciding game over', () => {
+    const game = new GameEngine({ spawning: false, maxStackDepth: 3 });
+    game.start();
+    game.debugAttachGroup('coral', [{ side: 0, count: 2 }]);
+    game.debugSpawn({ lane: 0, color: 'coral', speed: 1000 });
+    const events = game.update(400); // 520 - 400 = 72 + 2 * 24: third plate lands.
+    expect(events.map(event => event.type)).toEqual(['blockLanded', 'matchCleared', 'comboChanged']);
+    expect(game.getSnapshot().mode).toBe('playing');
+    expect(game.getSnapshot().score).toBe(9);
+    expect(game.getSnapshot().stacks[0]).toEqual([]);
+  });
+
+  it('protects nested snapshots and event payloads from consumers and later steps', () => {
+    const game = new GameEngine({ spawning: false });
+    game.start();
+    game.debugAttachGroup('sky', [{ side: 1, count: 1 }]);
+    game.debugSpawn({ lane: 0, color: 'coral', speed: 1000 });
+    const snapshot = game.getSnapshot();
+    const frozenState = JSON.stringify(snapshot);
+    const assertDeepFrozen = (value: unknown): void => {
+      if (value === null || typeof value !== 'object') return;
+      expect(Object.isFrozen(value)).toBe(true);
+      for (const nested of Object.values(value)) assertDeepFrozen(nested);
+    };
+    assertDeepFrozen(snapshot);
+    expect(() => Object.assign(snapshot.stacks[1]![0]!, { color: 'amber' })).toThrow(TypeError);
+    expect(() => Object.assign(snapshot.falling[0]!, { distance: 0 })).toThrow(TypeError);
+    const landed = game.update(448);
+    assertDeepFrozen(landed);
+    const landing = landed.find(event => event.type === 'blockLanded')!;
+    expect(() => Object.assign(landing.cell, { side: 5 })).toThrow(TypeError);
+    expect(() => Object.assign(landing.block, { color: 'teal' })).toThrow(TypeError);
+    game.debugAttachGroup('coral', [{ side: 0, count: 2 }]);
+    const cleared = game.update(0);
+    assertDeepFrozen(cleared);
+    const match = cleared.find(event => event.type === 'matchCleared')!;
+    expect(() => Object.assign(match.cells[0]!, { index: 99 })).toThrow(TypeError);
+    expect(() => Object.assign(match.cells, { 0: { side: 5, index: 99 } })).toThrow(TypeError);
+    const frozenEvents = JSON.stringify([landed, cleared]);
+    game.restart();
+    expect(JSON.stringify(snapshot)).toBe(frozenState);
+    expect(JSON.stringify([landed, cleared])).toBe(frozenEvents);
+  });
   it('rotates only while playing and lands a block on the mapped side', () => {
     const game = new GameEngine({ spawning: false });
     game.enqueue({ type: 'rotate', steps: 1 });

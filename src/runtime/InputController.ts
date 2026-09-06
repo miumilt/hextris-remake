@@ -25,10 +25,11 @@ export class InputController {
     const document = this.host.document;
     if (key === 'a' || key === 'arrowleft') {
       event.preventDefault();
-      this.send({ type: 'rotate', steps: -1 });
+      // Attached sides render at side - orientation, so positive turns go left.
+      this.send({ type: 'rotate', steps: 1 });
     } else if (key === 'd' || key === 'arrowright') {
       event.preventDefault();
-      this.send({ type: 'rotate', steps: 1 });
+      this.send({ type: 'rotate', steps: -1 });
     } else if (key === 'escape' && !document.fullscreenElement) {
       event.preventDefault();
       this.send({ type: 'togglePause' });

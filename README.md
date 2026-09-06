@@ -44,7 +44,7 @@ Create a production build:
 npm run build
 ```
 
-Serve the generated `dist/` directory with a static web server. No application server, database, or external visual assets are required.
+Serve the entire generated `dist/` directory with a static web server. The build includes `LICENSE`, `THIRD_PARTY_NOTICES.md`, `SOURCE.md`, and matching Corresponding Source in `source/`; keep these materials available alongside the game when hosting or redistributing it. Rebuild after modifying source so the application and its bundled source match. See [SOURCE.md](SOURCE.md) for rebuilding instructions. No application server, database, or external visual assets are required.
 
 ## Architecture
 
