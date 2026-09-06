@@ -47,7 +47,7 @@ describe('CanvasRenderer', () => {
       const game = new GameEngine({ spawning: false });
       game.start();
       game.debugAttachGroup('coral', [{ side: 0, count: 1 }]);
-      const input = new InputController(window, command => game.enqueue(command));
+      const input = new InputController(window, command => game.enqueue(command), () => game.getSnapshot().mode);
       const center = () => {
         const plate = polygons.find(({ points, style }) => points.length === 4 && typeof style === 'object')!;
         return plate.points.reduce((sum, [x, y]) => [sum[0]! + x! / 4, sum[1]! + y! / 4], [0, 0]);

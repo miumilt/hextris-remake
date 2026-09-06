@@ -15,6 +15,12 @@ function setup() {
 }
 
 describe('InputController', () => {
+  it('requires a current-mode reader at construction', () => {
+    // @ts-expect-error InputController must not silently assume playing mode.
+    const input = new InputController(window, () => {});
+    expect(input).toBeInstanceOf(InputController);
+  });
+
   it.each([['ArrowLeft', 1], ['a', 1], ['A', 1], ['ArrowRight', 5], ['d', 5], ['D', 5]] as const)(
     'maps %s to one rotation and prevents browser navigation', (key, orientation) => {
       const { game } = setup();

@@ -104,6 +104,12 @@ describe('ScreenController', () => {
     const choices = [...root.querySelectorAll<HTMLButtonElement>('[data-action="upgrade"]')];
     expect(choices).toHaveLength(2);
     expect(choices.map((choice) => choice.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+    expect(choices[0]!.hasAttribute('aria-label')).toBe(false);
+    const labelledBy = choices[0]!.getAttribute('aria-labelledby')!.split(' ');
+    expect(labelledBy.map((id) => document.getElementById(id)?.textContent?.trim())).toEqual(['STABILIZER', 'LEVEL 1 / 3']);
+    const describedBy = choices[0]!.getAttribute('aria-describedby')!;
+    expect(document.getElementById(describedBy)?.textContent).toBe('FALL SPEED -4%');
+    expect(document.activeElement).toBe(choices[0]);
     expect(root.querySelector('h1')?.textContent).toBe('CHOOSE UPGRADE');
     expect(root.textContent).toContain('STABILIZER');
     expect(root.textContent).toContain('FALL SPEED -4%');
@@ -112,6 +118,31 @@ describe('ScreenController', () => {
     expect(root.textContent?.toLowerCase()).not.toMatch(/settings|store/);
     choices[1]!.click();
     expect(calls).toEqual(['select:1', 'confirm']);
+  });
+
+  it('moves upgrade focus on selection changes without refocusing unchanged RAF renders', () => {
+    const screen = new ScreenController(root);
+    const offer = snapshot({
+      mode: 'upgrade',
+      upgrades: {
+        levels: { stabilizer: 0, comboRelay: 0, salvage: 0, deepPulse: 0, anomalyShield: 0, lastStand: 0 },
+        selectedIndex: 0,
+        choices: [
+          { id: 'stabilizer', level: 0, maxLevel: 3, label: 'STABILIZER', description: 'FALL SPEED -4%' },
+          { id: 'deepPulse', level: 1, maxLevel: 2, label: 'DEEP PULSE', description: 'PULSE HITS +1 SIDE' },
+        ],
+      },
+    });
+    screen.render(offer);
+    const choices = [...root.querySelectorAll<HTMLButtonElement>('[data-action="upgrade"]')];
+    expect(document.activeElement).toBe(choices[0]);
+    const outside = document.createElement('button');
+    document.body.append(outside);
+    outside.focus();
+    screen.render(offer);
+    expect(document.activeElement).toBe(outside);
+    screen.render({ ...offer, upgrades: { ...offer.upgrades, selectedIndex: 1 } });
+    expect(document.activeElement).toBe(choices[1]);
   });
 
   it('renders a singleton offer as one intentional upgrade action', () => {

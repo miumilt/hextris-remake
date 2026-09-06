@@ -6,7 +6,7 @@ export class InputController {
   public constructor(
     private readonly host: Window,
     private readonly send: (command: GameCommand) => void,
-    private readonly getMode: () => GameMode = () => 'playing',
+    private readonly getMode: () => GameMode,
   ) {}
 
   public start(): void {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { GameEngine } from '../src/game/GameEngine';
 import { InputController } from '../src/runtime/InputController';
+import { ScreenController } from '../src/ui/ScreenController';
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
@@ -33,6 +34,20 @@ describe('progression keyboard input', () => {
     expect(game.getSnapshot()).toMatchObject({ mode: 'upgrade', orientation: 5, upgrades: { selectedIndex: 1 } });
     key(game, 'ArrowLeft');
     expect(game.getSnapshot().upgrades.selectedIndex).toBe(0);
+  });
+
+  it('transfers visible focus after an arrow changes the selected upgrade', () => {
+    const game = progressionInput();
+    game.update(3);
+    document.body.innerHTML = '<main id="ui-root"></main>';
+    const screen = new ScreenController(document.getElementById('ui-root')!);
+    cleanups.push(() => screen.destroy());
+    screen.render(game.getSnapshot());
+    const choices = [...document.querySelectorAll<HTMLButtonElement>('[data-action="upgrade"]')];
+    expect(document.activeElement).toBe(choices[0]);
+    key(game, 'ArrowRight');
+    screen.render(game.getSnapshot());
+    expect(document.activeElement).toBe(choices[1]);
   });
 
   it.each([' ', 'Space', 'Enter'])(`confirms an upgrade with %s`, (button) => {

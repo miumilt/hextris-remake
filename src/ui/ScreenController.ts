@@ -23,17 +23,20 @@ const ANOMALY_LABELS: Readonly<Record<AnomalyType, string>> = {
 const escapeHtml = (value: string): string => value
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
-const upgradeButton = (choice: UpgradeChoice, index: number, selected: boolean): string =>
-  `<button type="button" class="upgrade-choice" data-action="upgrade" data-index="${index}" aria-pressed="${selected}" aria-label="${escapeHtml(choice.label)}, level ${choice.level + 1} of ${choice.maxLevel}">
+const upgradeButton = (choice: UpgradeChoice, index: number, selected: boolean): string => {
+  const id = `upgrade-${choice.id}`;
+  return `<button type="button" class="upgrade-choice" data-action="upgrade" data-index="${index}" aria-pressed="${selected}" aria-labelledby="${id}-label ${id}-level" aria-describedby="${id}-description">
     <span class="choice-index" aria-hidden="true">0${index + 1}</span>
-    <strong>${escapeHtml(choice.label)}</strong>
-    <span class="choice-description">${escapeHtml(choice.description)}</span>
-    <span class="choice-level">LEVEL ${choice.level + 1} / ${choice.maxLevel}</span>
+    <strong id="${id}-label">${escapeHtml(choice.label)}</strong>
+    <span class="choice-description" id="${id}-description">${escapeHtml(choice.description)}</span>
+    <span class="choice-level" id="${id}-level">LEVEL ${choice.level + 1} / ${choice.maxLevel}</span>
   </button>`;
+};
 
 /** Semantic screens share one delegated listener; score updates preserve focus. */
 export class ScreenController {
   private mode: GameMode | null = null;
+  private selectedUpgradeIndex: number | null = null;
   private actions: ScreenActions | null = null;
 
   public constructor(private readonly root: HTMLElement) {
@@ -47,6 +50,7 @@ export class ScreenController {
   public render(snapshot: GameSnapshot): void {
     const { mode } = snapshot;
     if (mode !== this.mode) {
+      if (mode !== 'upgrade') this.selectedUpgradeIndex = null;
       this.root.dataset.transition = this.mode === 'menu' && mode === 'playing' ? 'start' : '';
       this.root.dataset.mode = mode;
       this.mode = mode;
@@ -85,6 +89,7 @@ export class ScreenController {
   public destroy(): void {
     this.root.removeEventListener('click', this.onClick);
     this.actions = null;
+    this.selectedUpgradeIndex = null;
   }
 
   private readonly onClick = (event: MouseEvent): void => {
@@ -138,9 +143,14 @@ export class ScreenController {
   }
 
   private renderUpgradeSelection(snapshot: GameSnapshot): void {
+    const selectionChanged = this.selectedUpgradeIndex !== snapshot.upgrades.selectedIndex;
     this.root.querySelectorAll<HTMLButtonElement>('[data-action="upgrade"]').forEach((choice, index) => {
       choice.setAttribute('aria-pressed', String(index === snapshot.upgrades.selectedIndex));
       choice.tabIndex = index === snapshot.upgrades.selectedIndex ? 0 : -1;
     });
+    if (selectionChanged) {
+      this.root.querySelector<HTMLButtonElement>(`[data-action="upgrade"][data-index="${snapshot.upgrades.selectedIndex}"]`)?.focus();
+    }
+    this.selectedUpgradeIndex = snapshot.upgrades.selectedIndex;
   }
 }
