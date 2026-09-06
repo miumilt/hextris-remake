@@ -105,7 +105,7 @@ export class GameEngine {
   public enqueue(command: GameCommand): void {
     if (command.type === 'rotate') {
       if (this.mode !== 'playing') return;
-      if (this.queuedRotations >= 2) return;
+      if (this.queuedRotations + this.delayedRotations.length >= 2) return;
       this.queuedRotations += 1;
     } else if (command.type === 'togglePause') {
       if (this.pauseQueued) return;

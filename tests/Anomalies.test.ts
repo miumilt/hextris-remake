@@ -166,6 +166,37 @@ describe('telegraphed anomalies', () => {
     expect(game.getSnapshot().orientation).toBe(2);
   });
 
+  it('counts inertia rotations pending across separate zero-time batches toward the cap', () => {
+    const game = gameFor(['inertia']);
+    activate(game);
+    game.enqueue({ type: 'rotate', steps: 1 });
+    game.enqueue({ type: 'rotate', steps: 1 });
+    const firstBatch = game.update(0);
+    game.enqueue({ type: 'rotate', steps: 1 });
+    game.enqueue({ type: 'rotate', steps: 1 });
+    const secondBatch = game.update(0);
+
+    game.update(180);
+    const orientationAfterFirstBatch = game.getSnapshot().orientation;
+    game.enqueue({ type: 'rotate', steps: 1 });
+    game.enqueue({ type: 'rotate', steps: 1 });
+    game.enqueue({ type: 'rotate', steps: 1 });
+    const batchAfterCapacityReturns = game.update(0);
+
+    expect({ firstBatch, secondBatch, orientationAfterFirstBatch, batchAfterCapacityReturns }).toEqual({
+      firstBatch: [
+        { type: 'rotationDelayed', steps: 1, remainingMs: 180 },
+        { type: 'rotationDelayed', steps: 1, remainingMs: 180 },
+      ],
+      secondBatch: [],
+      orientationAfterFirstBatch: 2,
+      batchAfterCapacityReturns: [
+        { type: 'rotationDelayed', steps: 1, remainingMs: 180 },
+        { type: 'rotationDelayed', steps: 1, remainingMs: 180 },
+      ],
+    });
+  });
+
   it('resets anomalous block metadata and pending inertia commands on restart', () => {
     const decorated = gameFor(['drift', 'colorShift']);
     activate(decorated);
