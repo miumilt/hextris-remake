@@ -1,4 +1,4 @@
-import type { GameCommand } from '../game/types';
+import type { GameCommand, GameMode } from '../game/types';
 
 export class InputController {
   private started = false;
@@ -6,6 +6,7 @@ export class InputController {
   public constructor(
     private readonly host: Window,
     private readonly send: (command: GameCommand) => void,
+    private readonly getMode: () => GameMode = () => 'playing',
   ) {}
 
   public start(): void {
@@ -25,11 +26,24 @@ export class InputController {
     const document = this.host.document;
     if (key === 'a' || key === 'arrowleft') {
       event.preventDefault();
-      // Attached sides render at side - orientation, so positive turns go left.
-      this.send({ type: 'rotate', steps: 1 });
+      if (this.getMode() === 'upgrade') this.send({ type: 'selectUpgrade', steps: -1 });
+      else if (this.getMode() === 'playing') {
+        // Attached sides render at side - orientation, so positive turns go left.
+        this.send({ type: 'rotate', steps: 1 });
+      }
     } else if (key === 'd' || key === 'arrowright') {
       event.preventDefault();
-      this.send({ type: 'rotate', steps: -1 });
+      if (this.getMode() === 'upgrade') this.send({ type: 'selectUpgrade', steps: 1 });
+      else if (this.getMode() === 'playing') this.send({ type: 'rotate', steps: -1 });
+    } else if (key === ' ' || key === 'space' || key === 'spacebar') {
+      const mode = this.getMode();
+      if (mode === 'playing' || mode === 'upgrade') {
+        event.preventDefault();
+        this.send({ type: mode === 'playing' ? 'activateBonus' : 'confirmUpgrade' });
+      }
+    } else if (key === 'enter' && this.getMode() === 'upgrade') {
+      event.preventDefault();
+      this.send({ type: 'confirmUpgrade' });
     } else if (key === 'escape' && !document.fullscreenElement) {
       event.preventDefault();
       this.send({ type: 'togglePause' });

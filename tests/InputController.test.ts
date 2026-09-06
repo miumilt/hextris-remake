@@ -8,7 +8,7 @@ afterEach(() => { cleanups.splice(0).forEach((cleanup) => cleanup()); vi.restore
 function setup() {
   const game = new GameEngine({ spawning: false });
   game.start();
-  const input = new InputController(window, (command) => game.enqueue(command));
+  const input = new InputController(window, (command) => game.enqueue(command), () => game.getSnapshot().mode);
   input.start();
   cleanups.push(() => input.stop());
   return { game, input };
@@ -58,6 +58,17 @@ describe('InputController', () => {
     game.update(0);
     expect(game.getSnapshot().mode).toBe('playing');
     expect(event.defaultPrevented).toBe(false);
+  });
+  it('activates the stored bonus with Space only while playing', () => {
+    const { game } = setup();
+    game.update(32_517);
+    game.update(3_000);
+    expect(game.getSnapshot().bonus.stored).not.toBeNull();
+    const event = new KeyboardEvent('keydown', { key: ' ', cancelable: true });
+    window.dispatchEvent(event);
+    const events = game.update(0);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'bonusActivated' }));
+    expect(event.defaultPrevented).toBe(true);
   });
   it('requests fullscreen with F and handles rejected requests', async () => {
     setup();

@@ -17,7 +17,7 @@ const engine = new GameEngine();
 const effects = new EffectsSystem();
 const renderer = new CanvasRenderer(canvas);
 const screens = new ScreenController(root);
-const input = new InputController(window, (command) => engine.enqueue(command));
+const input = new InputController(window, (command) => engine.enqueue(command), () => engine.getSnapshot().mode);
 let snapshot = engine.getSnapshot();
 let effectsSnapshot = effects.snapshot();
 const runtime = new GameRuntime(engine, {
@@ -37,7 +37,7 @@ const runtime = new GameRuntime(engine, {
   onResize: (width, height, dpr) => renderer.resize(width, height, dpr),
   render: (alpha) => {
     renderer.render(snapshot, effectsSnapshot, alpha);
-    screens.render(snapshot.mode, snapshot.score);
+    screens.render(snapshot);
   },
 });
 
@@ -53,12 +53,25 @@ const togglePause = (): void => {
   runtime.resetTiming();
   runtime.flush();
 };
+const selectUpgrade = (index: 0 | 1): void => {
+  const selectedIndex = engine.getSnapshot().upgrades.selectedIndex;
+  const steps = index - selectedIndex;
+  if (steps !== 0) engine.enqueue({ type: 'selectUpgrade', steps: steps < 0 ? -1 : 1 });
+  runtime.flush();
+};
+const confirmUpgrade = (): void => {
+  engine.enqueue({ type: 'confirmUpgrade' });
+  runtime.resetTiming();
+  runtime.flush();
+};
 screens.bind({
   start: () => resetSession(() => engine.start()),
   restart: () => resetSession(() => engine.restart()),
   returnToMenu: () => resetSession(() => engine.returnToMenu()),
   resume: togglePause,
   togglePause,
+  selectUpgrade,
+  confirmUpgrade,
 });
 
 Object.assign(window, {
