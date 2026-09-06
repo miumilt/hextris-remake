@@ -123,7 +123,7 @@ export class BonusSystem {
     orientation: number,
     pulseSides: number,
   ): readonly CellRef[] {
-    const count = Math.max(0, Math.min(Math.trunc(pulseSides), stacks.length));
+    const count = Math.max(0, Math.min(Math.trunc(pulseSides), 5, stacks.length));
     return this.orderedSides(stacks, orientation)
       .filter((side) => stacks[side]!.length > 0)
       .slice(0, count)

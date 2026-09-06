@@ -103,6 +103,28 @@ describe('BonusSystem', () => {
     });
   });
 
+  it('never targets a sixth side when a caller supplies an over-cap PULSE upgrade value', () => {
+    const bonuses = new BonusSystem(new SequenceRandom([]));
+    const grid = stacks(
+      [block(1, 'coral')],
+      [block(2, 'amber')],
+      [block(3, 'teal')],
+      [block(4, 'sky')],
+      [block(5, 'coral')],
+      [block(6, 'amber')],
+    );
+    bonuses.collect('pulse');
+
+    expect(bonuses.activate(grid, 0, 6)).toEqual({
+      type: 'pulse',
+      cells: [
+        { side: 0, index: 0 }, { side: 1, index: 0 }, { side: 2, index: 0 },
+        { side: 3, index: 0 }, { side: 4, index: 0 },
+      ],
+      scoreDelta: 15,
+    });
+  });
+
   it('CLEANSE selects every cell of the orientation-first tallest side in safe collapse order', () => {
     const bonuses = new BonusSystem(new SequenceRandom([]));
     const grid = stacks(
