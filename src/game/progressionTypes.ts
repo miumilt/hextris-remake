@@ -80,3 +80,25 @@ export interface BonusRemoval {
   readonly cells: readonly { readonly side: number; readonly index: number }[];
   readonly color?: BlockColor;
 }
+
+export interface FallingBonus {
+  readonly id: number;
+  readonly type: BonusType;
+  readonly lane: number;
+  readonly distance: number;
+  readonly speed: number;
+}
+
+export interface BonusSnapshot {
+  readonly stored: BonusType | null;
+  readonly slowRemainingMs: number;
+}
+
+export interface BonusCollection {
+  readonly collected: BonusType;
+  readonly replaced: BonusType | null;
+}
+
+export interface BonusActivation extends BonusRemoval {
+  readonly scoreDelta: number;
+}
