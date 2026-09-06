@@ -35,6 +35,11 @@ export interface DebugPlacement {
   readonly count: number;
 }
 
+const canonicalMs = (value: number): number => {
+  const integer = Math.round(value);
+  return Math.abs(value - integer) < 1e-9 ? integer : value;
+};
+
 export class GameEngine {
   private mode: GameMode = 'menu';
   private score = 0;
@@ -49,6 +54,9 @@ export class GameEngine {
   private bonuses: BonusSystem;
   private upgrades: UpgradeSystem;
   private fallingBonuses: FallingBonus[] = [];
+  private motionElapsedMs = 0;
+  private fallingBornAt = new Map<number, number>();
+  private fallingBonusBornAt = new Map<number, number>();
   private readonly commandQueue: GameCommand[] = [];
   private queuedRotations = 0;
   private pauseQueued = false;
@@ -101,35 +109,59 @@ export class GameEngine {
     const events: GameEvent[] = [];
     this.applyQueuedCommands(events);
     if (this.mode !== 'playing') return Object.freeze(events);
+    if (deltaMs < 0 || !Number.isFinite(deltaMs)) throw new RangeError('deltaMs must be finite and non-negative');
 
-    const modifiers = this.upgrades.getModifiers();
-    const directorTick = this.director.update(deltaMs, modifiers);
-    const activeDeltaMs = directorTick.consumedMs;
-    this.elapsedMs += activeDeltaMs;
-    events.push(...directorTick.events);
-    const motionDeltaMs = this.bonuses.update(activeDeltaMs);
-    const profile = this.director.getWaveProfile();
-    const spawnSpeed = profile.speed * modifiers.speedMultiplier;
-    if (directorTick.bonusDue) this.scheduleBonus(spawnSpeed, events);
-    if (this.spawning) {
-      this.spawn(this.spawner.update(motionDeltaMs, {
-        ...profile,
-        speed: spawnSpeed,
-      }));
+    if (deltaMs === 0) {
+      const directorTick = this.director.update(0, this.upgrades.getModifiers());
+      events.push(...directorTick.events);
+      this.resolveWorld(events);
+      if (directorTick.upgradeDue && this.mode === 'playing') this.enterUpgrade(events);
+      return Object.freeze(events);
     }
-    this.moveAndLand(motionDeltaMs, events);
-    this.moveAndCollectBonuses(motionDeltaMs, events);
-    this.resolveAndScore(events);
 
-    if (this.grid.isOverflowed()) {
-      const rescued = this.applyLastStand(events);
-      if (!rescued || this.grid.isOverflowed()) {
-        this.mode = 'gameOver';
-        events.push(Object.freeze({ type: 'gameOver', score: this.score }));
+    let remainingMs = deltaMs;
+    while (remainingMs > 0 && this.mode === 'playing') {
+      const modifiers = this.upgrades.getModifiers();
+      const startProfile = this.director.getWaveProfile();
+      const motionMultiplier = this.bonuses.getMotionMultiplier();
+      let requestedMs = Math.min(remainingMs, this.director.getNextEventMs(modifiers));
+      const slowRemainingMs = this.bonuses.getSnapshot().slowRemainingMs;
+      if (slowRemainingMs > 0) requestedMs = Math.min(requestedMs, slowRemainingMs);
+      if (this.spawning) {
+        requestedMs = Math.min(
+          requestedMs,
+          this.spawner.getNextEventMs(startProfile) / motionMultiplier,
+        );
       }
-    }
 
-    if (directorTick.upgradeDue && this.mode === 'playing') this.enterUpgrade(events);
+      const directorTick = this.director.update(requestedMs, modifiers);
+      const activeDeltaMs = directorTick.consumedMs;
+      events.push(...directorTick.events);
+      if (activeDeltaMs <= 0) {
+        if (directorTick.upgradeDue) this.enterUpgrade(events);
+        break;
+      }
+
+      remainingMs -= activeDeltaMs;
+      this.elapsedMs = canonicalMs(this.elapsedMs + activeDeltaMs);
+      const motionDeltaMs = this.bonuses.update(activeDeltaMs);
+      this.motionElapsedMs = canonicalMs(this.motionElapsedMs + motionDeltaMs);
+      const profile = this.director.getWaveProfile();
+      const spawnSpeed = profile.speed * modifiers.speedMultiplier;
+      if (directorTick.bonusDue) this.scheduleBonus(spawnSpeed, events);
+      if (this.spawning) {
+        this.spawn(this.spawner.update(motionDeltaMs, {
+          ...profile,
+          speed: spawnSpeed,
+        }));
+      }
+      this.moveAndLand(events);
+      this.moveAndCollectBonuses(events);
+      this.resolveWorld(events);
+
+      if (directorTick.upgradeDue && this.mode === 'playing') this.enterUpgrade(events);
+      if (activeDeltaMs < requestedMs) break;
+    }
 
     return Object.freeze(events);
   }
@@ -180,6 +212,9 @@ export class GameEngine {
     this.bonuses = new BonusSystem(new SeededRandom(this.randomSeed ^ 0x424f4e55));
     this.upgrades = new UpgradeSystem(new SeededRandom(this.randomSeed ^ 0x55504752));
     this.fallingBonuses = [];
+    this.motionElapsedMs = 0;
+    this.fallingBornAt = new Map();
+    this.fallingBonusBornAt = new Map();
     this.commandQueue.length = 0;
     this.queuedRotations = 0;
     this.pauseQueued = false;
@@ -268,12 +303,14 @@ export class GameEngine {
 
   private spawn(requests: readonly SpawnRequest[]): void {
     for (const request of requests) {
-      this.falling.push({
+      const block = {
         ...this.createBlock(request.color),
         lane: request.lane,
         distance: START_DISTANCE,
         speed: request.speed,
-      });
+      };
+      this.falling.push(block);
+      this.fallingBornAt.set(block.id, this.motionElapsedMs);
     }
   }
 
@@ -281,15 +318,18 @@ export class GameEngine {
     const id = this.nextBlockId++;
     const bonus = this.bonuses.nextToken(id, (id - 1) % 6, speed);
     this.fallingBonuses.push(bonus);
+    this.fallingBonusBornAt.set(id, this.motionElapsedMs);
     events.push(Object.freeze({ type: 'bonusScheduled', bonus }));
   }
 
-  private moveAndCollectBonuses(deltaMs: number, events: GameEvent[]): void {
+  private moveAndCollectBonuses(events: GameEvent[]): void {
     const stillFalling: FallingBonus[] = [];
     for (const bonus of this.fallingBonuses) {
       const moved = Object.freeze({
         ...bonus,
-        distance: bonus.distance - (bonus.speed * deltaMs) / 1000,
+        distance: START_DISTANCE - (
+          bonus.speed * (this.motionElapsedMs - (this.fallingBonusBornAt.get(bonus.id) ?? this.motionElapsedMs))
+        ) / 1000,
       });
       if (moved.distance > HEX_APOTHEM) {
         stillFalling.push(moved);
@@ -297,6 +337,7 @@ export class GameEngine {
       }
 
       const collection = this.bonuses.collect(bonus.type);
+      this.fallingBonusBornAt.delete(bonus.id);
       events.push(Object.freeze({ type: 'bonusCollected', bonus: collection.collected }));
       if (collection.replaced !== null) {
         events.push(Object.freeze({
@@ -309,18 +350,24 @@ export class GameEngine {
     this.fallingBonuses = stillFalling;
   }
 
-  private moveAndLand(deltaMs: number, events: GameEvent[]): void {
+  private moveAndLand(events: GameEvent[]): void {
     const stillFalling: FallingBlock[] = [];
 
     for (const block of this.falling) {
       const side = this.grid.laneToSide(block.lane);
       const stackLength = this.grid.snapshot()[side]!.length;
       const landingDistance = HEX_APOTHEM + stackLength * BLOCK_DEPTH;
-      const moved = { ...block, distance: block.distance - (block.speed * deltaMs) / 1000 };
+      const moved = {
+        ...block,
+        distance: START_DISTANCE - (
+          block.speed * (this.motionElapsedMs - (this.fallingBornAt.get(block.id) ?? this.motionElapsedMs))
+        ) / 1000,
+      };
 
       if (moved.distance <= landingDistance) {
         const attached: GridBlock = Object.freeze({ id: block.id, color: block.color });
         const cell = Object.freeze(this.grid.attach(side, attached));
+        this.fallingBornAt.delete(block.id);
         events.push(Object.freeze({ type: 'blockLanded', block: attached, cell }));
       } else {
         stillFalling.push(moved);
@@ -328,6 +375,17 @@ export class GameEngine {
     }
 
     this.falling = stillFalling;
+  }
+
+  private resolveWorld(events: GameEvent[]): void {
+    this.resolveAndScore(events);
+    if (!this.grid.isOverflowed()) return;
+
+    const rescued = this.applyLastStand(events);
+    if (!rescued || this.grid.isOverflowed()) {
+      this.mode = 'gameOver';
+      events.push(Object.freeze({ type: 'gameOver', score: this.score }));
+    }
   }
 
   private resolveAndScore(events: GameEvent[]): void {

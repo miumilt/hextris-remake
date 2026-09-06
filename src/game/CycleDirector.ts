@@ -166,6 +166,12 @@ export class CycleDirector {
     });
   }
 
+  public getNextEventMs(modifiers: DirectorModifiers): number {
+    if (this.awaitingUpgrade) return 0;
+    if (this.bonusRemainingMs === null) this.scheduleNextBonus(modifiers);
+    return this.nextBoundaryMs();
+  }
+
   public beginNextCycle(): void {
     if (!this.awaitingUpgrade) return;
 

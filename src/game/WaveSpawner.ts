@@ -51,7 +51,7 @@ function buildPattern(pattern: WavePattern, anchor: number, colorIndexes: readon
 }
 
 export class WaveSpawner {
-  private intervalElapsedMs = 0;
+  private waveRemainingMs: number | null = null;
   private pending: PatternEntry[] = [];
   private forcedSequenceActive = false;
   private forcedSequenceIndex = 0;
@@ -66,31 +66,39 @@ export class WaveSpawner {
     return buildPattern(pattern, anchor, colorIndexes);
   }
 
+  public getNextEventMs(profile: WaveProfile): number {
+    this.validateProfile(profile);
+    this.syncForcedSequence(profile);
+    this.waveRemainingMs ??= profile.intervalMs;
+    const untilPending = this.pending.length === 0
+      ? Number.POSITIVE_INFINITY
+      : Math.min(...this.pending.map((entry) => entry.delayMs));
+    return Math.min(this.waveRemainingMs, untilPending);
+  }
+
   public update(deltaMs: number, profile: WaveProfile): readonly SpawnRequest[] {
     if (deltaMs < 0 || !Number.isFinite(deltaMs)) throw new RangeError('deltaMs must be finite and non-negative');
-    if (profile.intervalMs <= 0 || !Number.isFinite(profile.intervalMs)) {
-      throw new RangeError('intervalMs must be finite and positive');
-    }
+    this.validateProfile(profile);
     this.syncForcedSequence(profile);
+    this.waveRemainingMs ??= profile.intervalMs;
 
     const ready = this.releaseReady(0, profile.speed);
     let remainingMs = deltaMs;
     while (remainingMs > 0) {
-      const untilWave = profile.intervalMs - this.intervalElapsedMs;
       const untilPending = this.pending.length === 0
         ? Number.POSITIVE_INFINITY
         : Math.min(...this.pending.map((entry) => entry.delayMs));
-      const stepMs = Math.min(remainingMs, untilWave, untilPending);
+      const stepMs = Math.min(remainingMs, this.waveRemainingMs, untilPending);
 
       if (stepMs > 0) {
         ready.push(...this.releaseReady(stepMs, profile.speed));
-        this.intervalElapsedMs += stepMs;
+        this.waveRemainingMs -= stepMs;
         remainingMs -= stepMs;
       }
 
-      if (this.intervalElapsedMs >= profile.intervalMs) {
-        this.intervalElapsedMs -= profile.intervalMs;
+      if (this.waveRemainingMs <= 0) {
         this.scheduleWave(profile);
+        this.waveRemainingMs = profile.intervalMs;
         ready.push(...this.releaseReady(0, profile.speed));
       } else if (stepMs <= 0) {
         throw new Error('Wave spawner could not advance');
@@ -135,6 +143,12 @@ export class WaveSpawner {
     } else if (!this.forcedSequenceActive) {
       this.forcedSequenceActive = true;
       this.forcedSequenceIndex = 0;
+    }
+  }
+
+  private validateProfile(profile: WaveProfile): void {
+    if (profile.intervalMs <= 0 || !Number.isFinite(profile.intervalMs)) {
+      throw new RangeError('intervalMs must be finite and positive');
     }
   }
 

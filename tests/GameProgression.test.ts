@@ -48,12 +48,16 @@ describe('GameEngine endless progression', () => {
     const game = progressionGame(1);
     game.start();
 
-    const events = game.update(32_517);
+    const scheduled = game.update(32_517);
 
-    expect(events).toEqual(expect.arrayContaining([
+    expect(scheduled).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'bonusScheduled', bonus: expect.objectContaining({ type: 'colorBreak' }) }),
-      { type: 'bonusCollected', bonus: 'colorBreak' },
     ]));
+    expect(game.getSnapshot().fallingBonuses).toEqual([
+      expect.objectContaining({ type: 'colorBreak', distance: 520 }),
+    ]);
+    const landed = game.update(3_000);
+    expect(landed).toContainEqual({ type: 'bonusCollected', bonus: 'colorBreak' });
     expect(game.getSnapshot()).toMatchObject({ bonus: { stored: 'colorBreak' }, fallingBonuses: [] });
     expect(game.getSnapshot().stacks.every((stack) => stack.length === 0)).toBe(true);
   });
@@ -62,8 +66,10 @@ describe('GameEngine endless progression', () => {
     const game = progressionGame(1);
     game.start();
     game.update(32_517);
+    game.update(3_000);
+    game.update(26_984);
 
-    const events = game.update(29_984);
+    const events = game.update(3_000);
 
     expect(events).toEqual(expect.arrayContaining([
       { type: 'bonusCollected', bonus: 'slow' },
@@ -80,7 +86,8 @@ describe('GameEngine endless progression', () => {
       cycle: { flowMs: 100_000, pressureMs: 1_000, surgeMs: 1_000 },
     });
     game.start();
-    game.update(32_517); // Seed 1 deterministically stores COLOR BREAK.
+    game.update(32_517);
+    game.update(3_000); // Seed 1 deterministically stores COLOR BREAK.
     game.debugAttachGroup('coral', [{ side: 0, count: 2 }]);
     game.enqueue({ type: 'activateBonus' });
 
@@ -94,7 +101,8 @@ describe('GameEngine endless progression', () => {
   it('slows falling movement while director active time continues normally', () => {
     const game = progressionGame(3);
     game.start();
-    game.update(40_845); // Seed 3 deterministically stores SLOW.
+    game.update(40_845);
+    game.update(3_000); // Seed 3 deterministically stores SLOW.
     game.enqueue({ type: 'activateBonus' });
     game.update(0);
     game.debugSpawn({ lane: 0, color: 'coral', speed: 100 });
@@ -237,6 +245,7 @@ describe('GameEngine endless progression', () => {
     const game = progressionGame(3);
     game.start();
     game.update(40_845);
+    game.update(3_000);
     game.enqueue({ type: 'activateBonus' });
     game.update(0);
     game.debugSpawn({ lane: 0, color: 'coral', speed: 100 });
@@ -305,7 +314,8 @@ describe('GameEngine endless progression', () => {
     const run = (steps: readonly number[]) => {
       const game = progressionGame(3);
       game.start();
-      game.update(40_845); // Seed 3 stores SLOW.
+      game.update(40_845);
+      game.update(3_000); // Seed 3 stores SLOW.
       game.enqueue({ type: 'activateBonus' });
       game.update(0);
       game.debugSpawn({ lane: 0, color: 'coral', speed: 10 });
@@ -319,6 +329,51 @@ describe('GameEngine endless progression', () => {
     expect(large).toEqual(split);
     expect(large.falling[0]?.distance).toBe(487);
     expect(large.bonus.slowRemainingMs).toBe(0);
+  });
+
+  it('keeps enabled spawning identical for large and split updates without pre-spawn motion', () => {
+    const run = (steps: readonly number[]) => {
+      const game = new GameEngine({
+        randomSeed: 37,
+        spawning: true,
+        maxStackDepth: 100,
+        cycle: { flowMs: 100_000, pressureMs: 1_000, surgeMs: 1_000 },
+      });
+      game.start();
+      const events = steps.flatMap((step) => game.update(step));
+      return { events, snapshot: game.getSnapshot() };
+    };
+
+    const large = run([8_200]);
+    const split = run([1_640, 1_640, 1_640, 1_640, 1_640]);
+
+    expect(large).toEqual(split);
+    expect(large.snapshot.elapsedMs).toBe(8_200);
+    expect(large.snapshot.falling.length).toBeGreaterThanOrEqual(2);
+    const fallingIds = large.snapshot.falling.map((block) => block.id);
+    expect(fallingIds).toEqual(
+      Array.from({ length: fallingIds.length }, (_, index) => fallingIds[0]! + index),
+    );
+    expect(new Set(large.snapshot.falling.map((block) => block.distance)).size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('schedules a bonus at its director boundary independent of public update chunks', () => {
+    const run = (steps: readonly number[]) => {
+      const game = progressionGame(1);
+      game.start();
+      const events = steps.flatMap((step) => game.update(step));
+      return { events, snapshot: game.getSnapshot() };
+    };
+
+    const large = run([35_517]);
+    const split = run([32_517, 3_000]);
+
+    expect(large).toEqual(split);
+    expect(large.snapshot).toMatchObject({
+      elapsedMs: 35_517,
+      bonus: { stored: 'colorBreak' },
+      fallingBonuses: [],
+    });
   });
 
   it('validates every explicit grid removal before mutating and freezes returned blocks', () => {
