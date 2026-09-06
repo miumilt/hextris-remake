@@ -236,15 +236,6 @@ export class CycleDirector {
       events.push({ type: 'anomalyEnded', anomalies: expired });
     }
 
-    if (!this.deferredBonus && this.bonusRemainingMs !== null && this.bonusRemainingMs <= 0) {
-      if (this.phase === 'surge') {
-        this.deferredBonus = true;
-      } else {
-        bonusDue = true;
-        this.scheduleNextBonus(modifiers);
-      }
-    }
-
     if (this.phase === 'flow' && this.elapsedMs >= this.flowEndMs) {
       this.phase = 'pressure';
       events.push({ type: 'phaseChanged', phase: this.phase, cycle: this.cycleNumber });
@@ -255,6 +246,15 @@ export class CycleDirector {
     } else if (this.phase === 'surge' && this.elapsedMs >= this.cycleDurationMs) {
       this.awaitingUpgrade = true;
       events.push({ type: 'cycleCompleted', cycle: this.cycleNumber });
+    }
+
+    if (!this.deferredBonus && this.bonusRemainingMs !== null && this.bonusRemainingMs <= 0) {
+      if (this.phase === 'surge') {
+        this.deferredBonus = true;
+      } else {
+        bonusDue = true;
+        this.scheduleNextBonus(modifiers);
+      }
     }
 
     return bonusDue;

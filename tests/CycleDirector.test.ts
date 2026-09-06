@@ -164,6 +164,35 @@ describe('CycleDirector', () => {
     expect(director.update(1, NO_MODIFIERS).bonusDue).toBe(true);
   });
 
+  it('defers a bonus due exactly on the pressure-to-surge boundary', () => {
+    const director = new CycleDirector(new SequenceRandom([
+      2_000 / 14_001,
+      14_000 / 14_001,
+      0,
+      0,
+    ]));
+
+    const flowToPressure = director.update(30_000, NO_MODIFIERS);
+    expect(flowToPressure.events).toContainEqual({
+      type: 'phaseChanged', phase: 'pressure', cycle: 1,
+    });
+    expect(flowToPressure.bonusDue).toBe(true);
+    const cycleComplete = director.update(25_000, NO_MODIFIERS);
+    expect(cycleComplete).toMatchObject({ bonusDue: false, upgradeDue: true });
+    director.beginNextCycle();
+    expect(director.update(17_000, NO_MODIFIERS).bonusDue).toBe(true);
+
+    const pressureToSurge = director.update(28_000, NO_MODIFIERS);
+    expect(pressureToSurge.events).toContainEqual({
+      type: 'phaseChanged', phase: 'surge', cycle: 2,
+    });
+    expect(pressureToSurge.bonusDue).toBe(false);
+
+    director.update(10_000, NO_MODIFIERS);
+    director.beginNextCycle();
+    expect(director.update(1, NO_MODIFIERS).bonusDue).toBe(true);
+  });
+
   it('splits a large delta across phase, warning, anomaly, bonus, and cycle boundaries', () => {
     const director = new CycleDirector(new SequenceRandom([0, 0]), {
       forcedAnomaliesByCycle: { 2: ['inertia'] },
