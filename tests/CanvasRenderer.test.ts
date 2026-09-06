@@ -87,7 +87,7 @@ describe('CanvasRenderer', () => {
   });
   it('draws one contracting plate per clear origin before the particle burst without mutating effects', () => {
     const { renderer, polygons, context } = surface();
-    const fx = new EffectsSystem(() => 0.5);
+    const fx = new EffectsSystem({ random: () => 0.5 });
     fx.consume([{ type: 'matchCleared', cells: [{ side: 0, index: 0 }, { side: 0, index: 1 }], color: 'teal', chain: 1 }]);
     fx.update(35);
     const snapshot = fx.snapshot();
@@ -148,7 +148,7 @@ describe('CanvasRenderer', () => {
 
   it('keeps a decorative field visible in menu and draws finite effects without mutating them', () => {
     const { renderer, polygons, context } = surface();
-    const fx = new EffectsSystem(() => 0.5);
+    const fx = new EffectsSystem({ random: () => 0.5 });
     fx.consume([{ type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'teal', chain: 2 },
       { type: 'comboChanged', multiplier: 2 },
       { type: 'blockLanded', cell: { side: 1, index: 0 }, block: { id: 4, color: 'amber' } }]);

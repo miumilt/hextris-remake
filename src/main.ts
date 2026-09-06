@@ -14,7 +14,7 @@ const root = document.querySelector<HTMLElement>('#ui-root');
 if (!canvas || !root) throw new Error('Game canvas or screen root is missing');
 
 const engine = new GameEngine();
-const effects = new EffectsSystem();
+const effects = new EffectsSystem({ reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches });
 const renderer = new CanvasRenderer(canvas);
 const screens = new ScreenController(root);
 const input = new InputController(window, (command) => engine.enqueue(command), () => engine.getSnapshot().mode);
@@ -31,7 +31,7 @@ const runtime = new GameRuntime(engine, {
   },
   onStep: (ms) => {
     snapshot = engine.getSnapshot();
-    if (snapshot.mode !== 'paused') effects.update(ms);
+    if (snapshot.mode === 'playing') effects.update(ms);
     effectsSnapshot = effects.snapshot();
   },
   onResize: (width, height, dpr) => renderer.resize(width, height, dpr),

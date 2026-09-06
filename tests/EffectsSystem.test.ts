@@ -7,14 +7,14 @@ describe('EffectsSystem', () => {
     const landing = { type: 'blockLanded' as const, block: { id: 1, color: 'sky' as const }, cell: { side: 0, index: 0 } };
     effects.consume([landing]);
     expect(effects.snapshot().shake.magnitude).toBeGreaterThan(0);
-    expect(effects.snapshot().shake.magnitude).toBeLessThan(2);
+    expect(effects.snapshot().shake.magnitude).toBe(2);
     effects.update(50); effects.update(20);
     expect(effects.snapshot().shake).toEqual({ magnitude: 0, remainingMs: 0 });
     effects.consume([{ type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'sky', chain: 2 }, landing]);
-    expect(effects.snapshot().shake).toEqual({ magnitude: 4, remainingMs: 120 });
+    expect(effects.snapshot().shake).toEqual({ magnitude: 6, remainingMs: 120 });
   });
   it('creates finite particles and removes them after their lifetime', () => {
-    const effects = new EffectsSystem(() => 0.5);
+    const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([
       {
         type: 'matchCleared',
@@ -34,7 +34,7 @@ describe('EffectsSystem', () => {
   });
 
   it('clamps one update to fifty milliseconds while integrating particle motion', () => {
-    const effects = new EffectsSystem(() => 0.5);
+    const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([
       { type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'coral', chain: 1 },
     ]);
@@ -57,7 +57,7 @@ describe('EffectsSystem', () => {
   });
 
   it('maps cleared cells and landings to their clockwise world-side positions', () => {
-    const effects = new EffectsSystem(() => 0.5);
+    const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume(
       [
         { type: 'blockLanded', block: { id: 1, color: 'sky' }, cell: { side: 0, index: 1 } },
@@ -71,14 +71,14 @@ describe('EffectsSystem', () => {
     expect(snapshot.flashes[0]).toMatchObject({ y: -76, color: 'sky' });
     expect(snapshot.particles[0]?.x).toBeCloseTo(10 + 36 * Math.sqrt(3));
     expect(snapshot.particles[0]).toMatchObject({ y: -16, color: 'coral' });
-    expect(snapshot.shake).toMatchObject({ magnitude: 4, remainingMs: 120 });
+    expect(snapshot.shake).toMatchObject({ magnitude: 6, remainingMs: 120 });
 
     for (let update = 0; update < 4; update += 1) effects.update(50);
     expect(effects.snapshot().flashes).toEqual([]);
   });
 
   it('inverts grid orientation when positioning effects on a rotated attached side', () => {
-    const effects = new EffectsSystem(() => 0.5);
+    const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([
       { type: 'matchCleared', cells: [{ side: 1, index: 0 }], color: 'teal', chain: 1 },
     ], { orientation: 1 });
@@ -90,7 +90,7 @@ describe('EffectsSystem', () => {
   });
 
   it('discards the oldest particles when later bursts exceed the cap', () => {
-    const effects = new EffectsSystem(() => 0.5);
+    const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([
       { type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'coral', chain: 1 },
     ]);
@@ -110,7 +110,7 @@ describe('EffectsSystem', () => {
   });
 
   it('caps particles, expires transient impulses, and exposes immutable snapshots', () => {
-    const effects = new EffectsSystem(() => 0.5);
+    const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([
       {
         type: 'matchCleared',
@@ -138,7 +138,7 @@ describe('EffectsSystem', () => {
   });
 
   it('clears all visual state on reset', () => {
-    const effects = new EffectsSystem(() => 0.5);
+    const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([
       { type: 'blockLanded', block: { id: 1, color: 'teal' }, cell: { side: 0, index: 0 } },
       { type: 'comboChanged', multiplier: 2 },
@@ -151,6 +151,10 @@ describe('EffectsSystem', () => {
       flashes: [],
       shake: { magnitude: 0, remainingMs: 0 },
       combo: { multiplier: 0, x: 0, y: 0, ageMs: 0, lifetimeMs: 0, remainingMs: 0 },
+      shockwaves: [],
+      labels: [],
+      screenFlash: null,
+      hitStopRemainingMs: 0,
     });
   });
 });
