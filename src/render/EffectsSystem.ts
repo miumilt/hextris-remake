@@ -14,6 +14,8 @@ const COMBO_LIFETIME_MS = 360;
 const CLEAR_SHOCKWAVE_LIFETIME_MS = 360;
 const TOP_SIDE_ANGLE = -Math.PI / 2;
 
+const progressionLabel = (value: string): string => value.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+
 export interface EffectParticle {
   readonly x: number;
   readonly y: number;
@@ -191,11 +193,11 @@ export class EffectsSystem {
             lifetimeMs: 520,
             intensity: 1,
           });
-          this.addLabel(event.bonus.toUpperCase(), 'coral', 620);
+          this.addLabel(progressionLabel(event.bonus), 'coral', 620);
           this.flash('coral', 0.75, 100);
           break;
         case 'anomalyStarted':
-          this.addLabel(event.anomalies.join(' + ').toUpperCase(), 'amber', 620);
+          this.addLabel(event.anomalies.map(progressionLabel).join(' + '), 'amber', 620);
           this.flash('amber', 0.55, 100);
           break;
         case 'cycleCompleted':

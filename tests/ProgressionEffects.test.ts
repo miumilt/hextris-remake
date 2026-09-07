@@ -73,6 +73,20 @@ describe('progression effects', () => {
     expect(effects.snapshot().screenFlash).toBeNull();
   });
 
+  it('uses the authored spaced labels for camel-case bonuses and anomalies', () => {
+    const effects = new EffectsSystem({ random: () => 0.5 });
+
+    effects.consume([
+      { type: 'bonusRemoved', bonus: 'colorBreak', cells: [], blocks: [], scoreDelta: 0 },
+      { type: 'anomalyStarted', anomalies: ['colorShift', 'inertia'] },
+    ]);
+
+    expect(effects.snapshot().labels.map(({ text }) => text)).toEqual([
+      'COLOR BREAK',
+      'COLOR SHIFT + INERTIA',
+    ]);
+  });
+
   it('caps surge completion and last stand at the strongest shake and flash', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
