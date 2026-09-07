@@ -1,5 +1,15 @@
-import { BLOCK_COLORS, BLOCK_DEPTH, FIXED_STEP_MS, HEX_APOTHEM, MAX_STACK_DEPTH, START_DISTANCE, VISUAL_COLORS } from '../game/constants';
-import type { BlockColor, GameSnapshot } from '../game/types';
+import {
+  BLOCK_COLORS,
+  BLOCK_DEPTH,
+  FIXED_STEP_MS,
+  HEX_APOTHEM,
+  MAX_STACK_DEPTH,
+  START_DISTANCE,
+  SURGE_GUIDE_SCALE,
+  VISUAL_COLORS,
+} from '../game/constants';
+import type { FallingBonus, BonusType } from '../game/progressionTypes';
+import type { BlockColor, FallingBlock, GameSnapshot } from '../game/types';
 import type { EffectsSnapshot } from './EffectsSystem';
 import { blockQuad, hexPoints, type Point } from './geometry';
 
@@ -10,6 +20,9 @@ const COLLAPSE_MS = 140;
 // Keep in sync with enter-field's starting scale in styles.css.
 const MENU_FIELD_SCALE = 0.82;
 const WORLD_RADIUS = (START_DISTANCE + BLOCK_DEPTH + 32) / Math.cos(Math.PI / 6);
+const BONUS_GLYPHS: Readonly<Record<BonusType, string>> = {
+  slow: 'S', pulse: 'P', cleanse: 'C', colorBreak: 'B',
+};
 const ease = (t: number): number => {
   const bounded = Math.max(0, Math.min(1, t));
   return bounded * bounded * (3 - 2 * bounded);
@@ -25,6 +38,7 @@ export class CanvasRenderer {
   private dpr = 1;
   private scale = 1;
   private lastSnapshot: GameSnapshot | null = null;
+  private lastPresentedSnapshot: GameSnapshot | null = null;
   private targetOrientation = 0;
   private fromOrientation = 0;
   private turnStartedAt = 0;
@@ -55,13 +69,30 @@ export class CanvasRenderer {
 
   /** CSS pixels, unaffected by device pixels or transient camera shake. */
   public worldToScreen(point: Point): Point {
-    return { x: this.width / 2 + point.x * this.scale, y: this.height / 2 + point.y * this.scale };
+    return {
+      x: this.width / 2 + this.finite(point.x) * this.scale,
+      y: this.height / 2 + this.finite(point.y) * this.scale,
+    };
   }
 
   public render(snapshot: GameSnapshot, effects: EffectsSnapshot, alpha: number): void {
     const fraction = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
-    const time = snapshot.elapsedMs + (snapshot.mode === 'playing' ? fraction * FIXED_STEP_MS : 0);
-    this.syncMotion(snapshot, time);
+    const previous = this.lastSnapshot;
+    const reset = previous !== null && snapshot.elapsedMs < previous.elapsedMs;
+    const modeChanged = previous !== null && snapshot.mode !== previous.mode;
+    if (reset || modeChanged || snapshot.mode === 'menu') this.lastPresentedSnapshot = null;
+    const heldSnapshot = this.lastPresentedSnapshot;
+    const holding = !reset
+      && !modeChanged
+      && effects.hitStopRemainingMs > 0
+      && snapshot.mode === 'playing'
+      && heldSnapshot?.mode === 'playing';
+    const presented = holding ? heldSnapshot : snapshot;
+    const presentedFraction = holding ? 1 : fraction;
+    const time = this.finite(presented.elapsedMs)
+      + (presented.mode === 'playing' ? presentedFraction * FIXED_STEP_MS : 0);
+    this.syncMotion(presented, time);
+    if (!holding) this.lastPresentedSnapshot = presented.mode === 'playing' ? presented : null;
     const orientation = this.orientationAt(time);
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -70,17 +101,17 @@ export class CanvasRenderer {
     ctx.save();
     ctx.translate(this.width / 2, this.height / 2);
     ctx.scale(this.scale, this.scale);
-    // The menu has visual motion even while engine elapsed time is zero.
-    this.guides(snapshot.mode === 'menu' ? performance.now() : time);
     const shake = effects.shake.magnitude;
     ctx.translate(Math.sin(effects.shake.remainingMs * 0.31) * shake, Math.cos(effects.shake.remainingMs * 0.43) * shake * 0.6);
+    // The menu has visual motion even while engine elapsed time is zero.
+    this.guides(presented, presented.mode === 'menu' ? performance.now() : time);
 
-    for (const block of snapshot.falling) {
-      const distance = block.distance + (snapshot.mode === 'playing' ? block.speed * (1 - fraction) * FIXED_STEP_MS / 1000 : 0);
-      this.trail(-Math.PI / 2 + block.lane * TURN, distance, block.color);
+    for (const block of presented.falling) {
+      const distance = this.fallingDistance(block, presented.mode, presentedFraction);
+      this.trail(block, distance);
     }
 
-    if (snapshot.mode === 'menu') {
+    if (presented.mode === 'menu') {
       // A decorative arrangement, independent of the actual grid and spawning.
       ctx.save();
       ctx.scale(MENU_FIELD_SCALE, MENU_FIELD_SCALE);
@@ -95,20 +126,31 @@ export class CanvasRenderer {
       ctx.restore();
     } else {
       this.hex(-orientation * TURN);
-      for (let side = 0; side < snapshot.stacks.length; side += 1) {
-        for (const block of snapshot.stacks[side]!) {
+      for (let side = 0; side < presented.stacks.length; side += 1) {
+        for (const block of presented.stacks[side]!) {
           const motion = this.plates.get(block.id)!;
           const distance = motion.from + (motion.to - motion.from) * ease((time - motion.startedAt) / COLLAPSE_MS);
           this.plate(-Math.PI / 2 + (side - orientation) * TURN, distance, block.color);
         }
       }
-      for (const block of snapshot.falling) {
-        const distance = block.distance + (snapshot.mode === 'playing' ? block.speed * (1 - fraction) * FIXED_STEP_MS / 1000 : 0);
-        this.plate(-Math.PI / 2 + block.lane * TURN, distance, block.color);
+      for (const block of presented.falling) {
+        const distance = this.fallingDistance(block, presented.mode, presentedFraction);
+        const angle = this.fallingAngle(block);
+        this.plate(angle, distance, block.color);
+        if (
+          block.shiftToColor !== undefined
+          && block.shiftAtDistance !== undefined
+          && distance > block.shiftAtDistance
+        ) this.colorFacet(angle, distance, block.shiftToColor);
+        if (block.mirageVisible && block.mirageLane !== undefined) {
+          this.miragePlate(this.laneAngle(block.mirageLane), distance, block.color);
+        }
       }
+      for (const bonus of presented.fallingBonuses) this.bonusToken(bonus, presented.mode, presentedFraction);
     }
     this.worldEffects(effects);
     ctx.restore();
+    this.screenEffects(effects);
     this.combo(effects);
   }
 
@@ -163,14 +205,18 @@ export class CanvasRenderer {
     }
   }
 
-  private guides(time: number): void {
+  private guides(snapshot: GameSnapshot, time: number): void {
     const ctx = this.ctx;
+    const phaseSpeed = snapshot.cycle.phase === 'surge' ? 2.35 : snapshot.cycle.phase === 'pressure' ? 1.55 : 1;
+    const direction = snapshot.cycle.anomalies.some(({ type }) => type === 'reverse') ? -1 : 1;
+    const frameInset = snapshot.cycle.phase === 'surge' ? 8 : snapshot.cycle.phase === 'pressure' ? 3 : 0;
     ctx.lineWidth = 1 / this.scale;
     ctx.strokeStyle = 'rgba(141,145,140,0.075)';
-    const safeRadius = (HEX_APOTHEM + MAX_STACK_DEPTH * BLOCK_DEPTH) / Math.cos(Math.PI / 6);
+    const safeRadius = (HEX_APOTHEM + MAX_STACK_DEPTH * BLOCK_DEPTH - frameInset) / Math.cos(Math.PI / 6);
     this.path(hexPoints(ORIGIN, safeRadius, -TURN)); ctx.stroke();
     ctx.save();
-    ctx.rotate(time * 0.000006);
+    if (snapshot.cycle.phase === 'surge') ctx.scale(SURGE_GUIDE_SCALE, SURGE_GUIDE_SCALE);
+    ctx.rotate(this.finite(time) * 0.000006 * phaseSpeed * direction);
     this.path(hexPoints(ORIGIN, 510, -TURN)); ctx.stroke();
     ctx.strokeStyle = 'rgba(141,145,140,0.045)';
     this.path(hexPoints(ORIGIN, 575, -TURN + 0.13)); ctx.stroke();
@@ -237,19 +283,104 @@ export class CanvasRenderer {
     return { coral: '#B9574D', amber: '#B88A38', teal: '#478277', sky: '#56829C' }[color];
   }
 
-  private trail(angle: number, distance: number, color: BlockColor): void {
+  private trail(block: FallingBlock, distance: number): void {
     const ctx = this.ctx;
     ctx.save();
     for (let step = 3; step >= 1; step -= 1) {
       ctx.globalAlpha = 0.025 * (4 - step);
+      const driftProgress = Math.max(0, (block.driftProgress ?? 0) - step * 0.08);
+      const angle = this.fallingAngle({ ...block, driftProgress });
       this.path(blockQuad(ORIGIN, angle, distance + step * 14, 10));
-      ctx.fillStyle = VISUAL_COLORS[color]; ctx.fill();
+      ctx.fillStyle = VISUAL_COLORS[block.color]; ctx.fill();
     }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  private fallingDistance(block: FallingBlock, mode: GameSnapshot['mode'], fraction: number): number {
+    const distance = this.finite(block.distance, START_DISTANCE);
+    const speed = this.finite(block.speed);
+    return distance + (mode === 'playing' ? speed * (1 - fraction) * FIXED_STEP_MS / 1000 : 0);
+  }
+
+  private fallingAngle(block: FallingBlock): number {
+    const fromLane = this.finite(block.lane);
+    if (block.driftToLane === undefined) return this.laneAngle(fromLane);
+    const toLane = this.finite(block.driftToLane, fromLane);
+    const laneDelta = ((toLane - fromLane + 9) % 6) - 3;
+    const progress = ease(this.finite(block.driftProgress));
+    return this.laneAngle(fromLane) + laneDelta * TURN * progress;
+  }
+
+  private laneAngle(lane: number): number {
+    return -Math.PI / 2 + this.finite(lane) * TURN;
+  }
+
+  private miragePlate(angle: number, distance: number, color: BlockColor): void {
+    const ctx = this.ctx;
+    const points = blockQuad(ORIGIN, angle, distance + 2, BLOCK_DEPTH - 4);
+    const middleNear = this.midpoint(points[0]!, points[1]!);
+    const middleFar = this.midpoint(points[3]!, points[2]!);
+    ctx.save();
+    ctx.fillStyle = VISUAL_COLORS[color];
+    ctx.globalAlpha = 0.28;
+    this.path([points[0]!, middleNear, middleFar, points[3]!]); ctx.fill();
+    ctx.globalAlpha = 0.18;
+    this.path([middleNear, points[1]!, points[2]!, middleFar]); ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  private colorFacet(angle: number, distance: number, color: BlockColor): void {
+    const ctx = this.ctx;
+    const points = blockQuad(ORIGIN, angle, distance + 2, BLOCK_DEPTH - 4);
+    const inner = this.midpoint(points[0]!, points[3]!);
+    ctx.save();
+    ctx.globalAlpha = 0.82;
+    this.path([points[0]!, points[1]!, inner]);
+    ctx.fillStyle = VISUAL_COLORS[color];
+    ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  private bonusToken(bonus: FallingBonus, mode: GameSnapshot['mode'], fraction: number): void {
+    const ctx = this.ctx;
+    const distance = this.finite(bonus.distance, START_DISTANCE)
+      + (mode === 'playing' ? this.finite(bonus.speed) * (1 - fraction) * FIXED_STEP_MS / 1000 : 0);
+    const angle = this.laneAngle(bonus.lane);
+    const point = { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
+    const rotation = angle + Math.PI / 6;
+    ctx.save();
+    this.path(hexPoints({ x: point.x, y: point.y + 3 }, 18, rotation));
+    ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.fill();
+    this.path(hexPoints(point, 17, rotation));
+    ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill();
+    this.path(hexPoints(point, 10, rotation));
+    ctx.fillStyle = VISUAL_COLORS.background; ctx.fill();
+    ctx.fillStyle = VISUAL_COLORS.ink;
+    ctx.font = '700 12px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(BONUS_GLYPHS[bonus.type], point.x, point.y + 0.5);
     ctx.restore();
   }
 
   private worldEffects(effects: EffectsSnapshot): void {
     const ctx = this.ctx;
+    for (const shockwave of effects.shockwaves) {
+      const progress = ease(this.finite(shockwave.ageMs) / Math.max(1, this.finite(shockwave.lifetimeMs, 1)));
+      const life = Math.max(0, 1 - progress);
+      const center = { x: this.finite(shockwave.x), y: this.finite(shockwave.y) };
+      const radius = 18 + progress * (90 + this.finite(shockwave.intensity) * 80);
+      ctx.save();
+      ctx.globalAlpha = life * Math.min(1, Math.max(0, shockwave.intensity));
+      ctx.strokeStyle = shockwave.color === 'ivory' ? VISUAL_COLORS.ink : VISUAL_COLORS[shockwave.color];
+      ctx.lineWidth = (1.5 + life * 3) / this.scale;
+      this.path(hexPoints(center, radius, -TURN)); ctx.stroke();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
     for (const flash of effects.flashes) {
       const life = Math.max(0, 1 - flash.ageMs / flash.lifetimeMs);
       ctx.save(); ctx.globalAlpha = life * 0.7;
@@ -286,6 +417,37 @@ export class CanvasRenderer {
       ctx.fillRect(-size / 2, -size / 2, size, size * 0.7);
       ctx.restore();
     }
+    ctx.globalAlpha = 1;
+  }
+
+  private screenEffects(effects: EffectsSnapshot): void {
+    const ctx = this.ctx;
+    if (effects.screenFlash !== null) {
+      const flash = effects.screenFlash;
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.72, Math.max(0, flash.intensity) * Math.min(1, flash.remainingMs / 90));
+      ctx.fillStyle = this.effectTone(flash.tone);
+      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+    effects.labels.forEach((label, index) => {
+      const life = Math.max(0, 1 - this.finite(label.ageMs) / Math.max(1, this.finite(label.lifetimeMs, 1)));
+      if (life <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, life * 1.6);
+      ctx.fillStyle = this.effectTone(label.tone);
+      ctx.font = `700 ${Math.round(22 + life * 10)}px Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label.text, this.width / 2, this.height * 0.34 + index * 34 - (1 - life) * 16);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    });
+  }
+
+  private effectTone(tone: 'ink' | 'coral' | 'amber'): string {
+    return tone === 'ink' ? VISUAL_COLORS.ink : VISUAL_COLORS[tone];
   }
 
   private combo(effects: EffectsSnapshot): void {
@@ -304,7 +466,20 @@ export class CanvasRenderer {
   private path(points: readonly Point[]): void {
     const ctx = this.ctx;
     ctx.beginPath();
-    points.forEach((point, index) => index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
+    points.forEach((point, index) => {
+      const x = this.finite(point.x);
+      const y = this.finite(point.y);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
     ctx.closePath();
+  }
+
+  private midpoint(a: Point, b: Point): Point {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  private finite(value: number | undefined, fallback = 0): number {
+    return value !== undefined && Number.isFinite(value) ? value : fallback;
   }
 }

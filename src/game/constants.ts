@@ -13,6 +13,7 @@ export const PRESSURE_END_MS = 45_000;
 export const ANOMALY_WARNING_MS = 1_000;
 export const MAX_FALL_SPEED = 780;
 export const MIN_WAVE_INTERVAL_MS = 320;
+export const SURGE_GUIDE_SCALE = 0.96;
 
 export const VISUAL_COLORS = {
   background: '#171918',
