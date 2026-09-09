@@ -75,7 +75,10 @@ describe('progression keyboard input', () => {
     expect(commands).toEqual([]);
     game.update(55_000);
     key(game, 'Enter');
-    while (game.getSnapshot().cycle.warning.length === 0) game.update(1_000);
+    for (let attempt = 0; attempt < 30 && game.getSnapshot().cycle.warning.length === 0; attempt += 1) {
+      game.update(1_000);
+    }
+    expect(game.getSnapshot().cycle.warning).not.toHaveLength(0);
     game.update(game.getSnapshot().cycle.warningRemainingMs);
     expect(game.getSnapshot().cycle.anomalies.map((anomaly) => anomaly.type)).toEqual(['reverse']);
     const before = game.getSnapshot().orientation;

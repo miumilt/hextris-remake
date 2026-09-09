@@ -2,15 +2,19 @@
 
 A desktop browser arcade game built with TypeScript, Canvas 2D, and Vite. Rotate the hexagon to collect connected groups of three or more matching blocks. Clears collapse the stacks, quick successive clears build a combo, and overflowing the safe boundary ends the run.
 
+An endless run is split into 55-second `FLOW`, `PRESSURE`, and `SURGE` cycles. Later cycles introduce announced anomalies, clears can award a replaceable one-slot bonus, and every completed cycle offers a choice between two run-only upgrades before play resumes.
+
 ## Controls
 
-- `A` / `←`: rotate left by 60 degrees.
-- `D` / `→`: rotate right by 60 degrees.
+- `A` / `←`: rotate left by 60 degrees; move left between upgrade choices.
+- `D` / `→`: rotate right by 60 degrees; move right between upgrade choices.
 - `Escape` or the pause button: pause; `Escape` again or `RESUME`: continue.
+- `Space`: activate the stored bonus; confirm the highlighted upgrade between cycles.
+- `Enter` or an upgrade card: confirm an upgrade between cycles.
 - `RESTART` / `RETRY`: begin a fresh run. `MENU`: return without reloading.
 - `F`: technical fullscreen toggle for the browser test harness. In fullscreen, Escape belongs to the browser.
 
-Hiding the tab pauses the game. Only the current score and pause control stay on screen during play. Screen transitions respect the system reduced-motion preference.
+Hiding the tab pauses the game. The compact HUD shows score, combo, cycle phase, anomaly warnings, and the stored bonus without covering the playfield. Screen transitions and gameplay effects respect the system reduced-motion preference.
 
 ## Development
 
@@ -48,9 +52,9 @@ Serve the entire generated `dist/` directory with a static web server. The build
 
 ## Architecture
 
-`GameEngine`, `HexGrid`, `MatchResolver`, and `WaveSpawner` implement deterministic rules without browser dependencies. `InputController` queues keyboard commands. `GameRuntime` consumes them at a fixed 60 Hz, caps delayed real frames, pauses hidden tabs, and publishes immutable snapshots and events. `CanvasRenderer` and `EffectsSystem` turn those into independent visual motion. `ScreenController` owns four semantic HTML screens through one delegated event listener. `main.ts` composes the modules and resets session state, effects, and timing together.
+`GameEngine`, `HexGrid`, `MatchResolver`, and `WaveSpawner` implement deterministic rules without browser dependencies. `CycleDirector`, `BonusSystem`, and `UpgradeSystem` own endless-run pacing and progression. `InputController` queues keyboard commands. `GameRuntime` consumes them at a fixed 60 Hz, caps delayed real frames, pauses hidden tabs, and publishes immutable snapshots and events. `CanvasRenderer` and `EffectsSystem` turn those into bounded, independent visual motion. `ScreenController` owns the semantic HTML screens through one delegated event listener. `main.ts` composes the modules and resets session state, progression, effects, and timing together.
 
-Browser QA uses `window.render_game_to_text()` for concise current state and `window.advanceTime(ms)` for deterministic stepping. Paused stepping leaves player state unchanged. The seeded generator makes a restarted run reproducible; there is no stored score or account state.
+Browser QA uses `window.render_game_to_text()` for concise current state and `window.advanceTime(ms)` for deterministic stepping. Paused and upgrade-selection stepping leave player state unchanged. Restarting or returning to the menu clears every run-only bonus, upgrade, anomaly, and Last Stand charge; there is no stored score or account state.
 
 ## Attribution and license
 

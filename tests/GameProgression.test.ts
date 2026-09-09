@@ -98,6 +98,20 @@ describe('GameEngine endless progression', () => {
     expect(game.getSnapshot().stacks[0]).toEqual([]);
   });
 
+  it('consumes a stored removal bonus even when every stack is empty', () => {
+    const game = progressionGame(1);
+    game.start();
+    game.update(32_517);
+    game.update(3_000); // Seed 1 deterministically stores COLOR BREAK.
+    expect(game.getSnapshot().stacks.every((stack) => stack.length === 0)).toBe(true);
+    game.enqueue({ type: 'activateBonus' });
+
+    const events = game.update(0);
+
+    expect(events).toEqual([{ type: 'bonusActivated', bonus: 'colorBreak' }]);
+    expect(game.getSnapshot()).toMatchObject({ bonus: { stored: null }, score: 0, combo: 1 });
+  });
+
   it('slows falling movement while director active time continues normally', () => {
     const game = progressionGame(3);
     game.start();

@@ -10,7 +10,7 @@ const source = resolve(dist, 'source');
 const notices = ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE.md'];
 const inputs = [
   'index.html', 'src', 'package.json', 'package-lock.json', 'tsconfig.json',
-  'vite.config.ts', 'vitest.config.ts', 'tests', 'README.md', ...notices,
+  'vite.config.ts', 'vitest.config.ts', 'tests', 'docs', 'README.md', ...notices,
   'scripts/package-source.mjs',
 ];
 
