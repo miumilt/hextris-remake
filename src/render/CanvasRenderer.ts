@@ -8,8 +8,9 @@ import {
   SURGE_GUIDE_SCALE,
   VISUAL_COLORS,
 } from '../game/constants';
-import type { FallingBonus, BonusType } from '../game/progressionTypes';
+import type { FallingBonus } from '../game/progressionTypes';
 import type { BlockColor, FallingBlock, GameSnapshot } from '../game/types';
+import { getBonusPresentation } from '../presentation/bonusPresentation';
 import type { EffectsSnapshot } from './EffectsSystem';
 import { blockQuad, hexPoints, type Point } from './geometry';
 
@@ -20,9 +21,6 @@ const COLLAPSE_MS = 140;
 // Keep in sync with enter-field's starting scale in styles.css.
 const MENU_FIELD_SCALE = 0.82;
 const WORLD_RADIUS = (START_DISTANCE + BLOCK_DEPTH + 32) / Math.cos(Math.PI / 6);
-const BONUS_GLYPHS: Readonly<Record<BonusType, string>> = {
-  slow: 'S', pulse: 'P', cleanse: 'C', colorBreak: 'B',
-};
 const ease = (t: number): number => {
   const bounded = Math.max(0, Math.min(1, t));
   return bounded * bounded * (3 - 2 * bounded);
@@ -362,7 +360,7 @@ export class CanvasRenderer {
     ctx.font = '700 12px Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(BONUS_GLYPHS[bonus.type], point.x, point.y + 0.5);
+    ctx.fillText(getBonusPresentation(bonus.type).glyph, point.x, point.y + 0.5);
     ctx.restore();
   }
 

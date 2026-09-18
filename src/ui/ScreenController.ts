@@ -1,5 +1,6 @@
 import type { GameMode, GameSnapshot } from '../game/types';
-import type { AnomalyType, BonusType, UpgradeChoice } from '../game/progressionTypes';
+import type { AnomalyType, UpgradeChoice } from '../game/progressionTypes';
+import { getBonusPresentation } from '../presentation/bonusPresentation';
 
 export interface ScreenActions {
   start(): void;
@@ -14,9 +15,6 @@ export interface ScreenActions {
 const button = (action: string, label: string, primary = false): string =>
   `<button type="button" class="cut-button${primary ? ' primary' : ''}" data-action="${action}">${label}</button>`;
 
-const BONUS_LABELS: Readonly<Record<BonusType, string>> = {
-  slow: 'Slow', pulse: 'Pulse', cleanse: 'Cleanse', colorBreak: 'Color Break',
-};
 const ANOMALY_LABELS: Readonly<Record<AnomalyType, string>> = {
   reverse: 'REVERSE', mirage: 'MIRAGE', drift: 'DRIFT', colorShift: 'COLOR SHIFT', inertia: 'INERTIA',
 };
@@ -121,8 +119,13 @@ export class ScreenController {
     if (cycleLabel) cycleLabel.textContent = `CYCLE ${String(snapshot.cycle.number).padStart(2, '0')} / ${snapshot.cycle.phase.toUpperCase()}`;
 
     const bonusHost = this.root.querySelector<HTMLElement>('.bonus-host');
-    if (bonusHost) bonusHost.innerHTML = snapshot.bonus.stored === null ? '' :
-      `<div class="bonus-slot" aria-label="Stored bonus: ${BONUS_LABELS[snapshot.bonus.stored]}"><span aria-hidden="true">◆</span><small>${BONUS_LABELS[snapshot.bonus.stored].toUpperCase()}</small></div>`;
+    if (bonusHost) {
+      if (snapshot.bonus.stored === null) bonusHost.innerHTML = '';
+      else {
+        const bonus = getBonusPresentation(snapshot.bonus.stored);
+        bonusHost.innerHTML = `<div class="bonus-slot" aria-label="Stored bonus: ${bonus.label}"><span aria-hidden="true">${bonus.glyph}</span><small>${bonus.label}</small></div>`;
+      }
+    }
 
     const upgradeRail = this.root.querySelector<HTMLElement>('.upgrade-rail');
     if (upgradeRail) {

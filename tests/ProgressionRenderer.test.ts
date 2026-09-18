@@ -135,7 +135,7 @@ describe('progression rendering', () => {
     }), baseEffects(), 1);
 
     expect(polygons.some(({ style }) => style === VISUAL_COLORS.ink)).toBe(true);
-    expect(text).toContainEqual(expect.objectContaining({ value: 'B' }));
+    expect(text).toContainEqual(expect.objectContaining({ value: '◆' }));
   });
 
   it('reverses guide motion without changing attached stack geometry and keeps surge compression within four percent', () => {

@@ -76,7 +76,7 @@ describe('ScreenController', () => {
     expect(root.querySelector('[aria-label="Score"]')?.textContent).toBe('81');
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40');
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe('Cycle 2, pressure');
-    expect(root.querySelector('[aria-label="Stored bonus: Pulse"]')).not.toBeNull();
+    expect(root.querySelector('[aria-label="Stored bonus: PULSE"]')).not.toBeNull();
     expect(root.querySelectorAll('.upgrade-mark')).toHaveLength(3);
     expect(root.querySelector('[role="status"]')?.textContent).toContain('REVERSE');
     expect(root.querySelector('[data-action="pause"]')).not.toBeNull();
