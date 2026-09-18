@@ -32,23 +32,23 @@ const runtime = new GameRuntime(engine, {
       presentation.reset();
     }
     snapshot = next;
-    effects.consume(events, { orientation: snapshot.orientation });
     presentation.consume(events);
-    effectsSnapshot = effects.snapshot();
+    effects.consume(events, { orientation: snapshot.orientation });
     presentationSnapshot = presentation.snapshot();
+    effectsSnapshot = effects.snapshot();
   },
   onStep: (ms) => {
     snapshot = engine.getSnapshot();
     if (snapshot.mode === 'playing') {
-      effects.update(ms);
       presentation.update(ms);
+      effects.update(ms);
     }
-    effectsSnapshot = effects.snapshot();
     presentationSnapshot = presentation.snapshot();
+    effectsSnapshot = effects.snapshot();
   },
   onResize: (width, height, dpr) => renderer.resize(width, height, dpr),
   render: (alpha) => {
-    renderer.render(snapshot, effectsSnapshot, alpha);
+    renderer.render(snapshot, effectsSnapshot, presentationSnapshot, alpha);
     screens.render(snapshot, presentationSnapshot);
   },
 });

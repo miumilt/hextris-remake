@@ -188,6 +188,7 @@ describe('EffectsSystem', () => {
     effects.reset();
 
     expect(effects.snapshot()).toEqual({
+      reducedMotion: false,
       assemblies: [],
       fragments: [],
       bonusImpact: null,

@@ -206,8 +206,9 @@ describe('progression rendering', () => {
 
     expect(strokes.some(({ points, style }) => {
       if (points.length !== 2 || style !== VISUAL_COLORS.ink) return false;
-      const [[ax, ay], [bx, by]] = points;
-      return Math.hypot(bx! - ax!, by! - ay!) >= 24;
+      const [first, second] = points;
+      if (!first || !second) return false;
+      return Math.hypot(second[0] - first[0], second[1] - first[1]) >= 24;
     })).toBe(true);
   });
 
@@ -246,18 +247,24 @@ describe('progression rendering', () => {
   });
 
   it('keeps reduced motion free of assembly transforms and traveling fragments', () => {
-    const { renderer, scales, polygons } = surface();
+    const { renderer, scales, polygons, strokes } = surface();
     const block = { id: 13, color: 'sky' as const, lane: 0, distance: 420, speed: 0 };
     const fx = new EffectsSystem({ random: () => 0.5, reducedMotion: true });
     fx.consume([
       { type: 'blockSpawned', block },
       { type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'sky', chain: 1 },
+      { type: 'bonusActivated', bonus: 'pulse' },
+      {
+        type: 'bonusRemoved', bonus: 'pulse', cells: [{ side: 0, index: 0 }],
+        blocks: [{ id: 1, color: 'sky' }], scoreDelta: 80,
+      },
     ]);
 
     renderer.render(snapshot({ falling: [block] }), fx.snapshot(), presentation(), 0);
 
     expect(scales.some(([x, y]) => Math.abs(x - 0.72) < 0.01 && Math.abs(y - 0.72) < 0.01)).toBe(false);
     expect(polygons.filter(({ points }) => points.length === 3 || points.length === 5)).toHaveLength(0);
+    expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.ink)).toHaveLength(1);
   });
 
   it('reverses guide motion without changing attached stack geometry and keeps surge compression within four percent', () => {

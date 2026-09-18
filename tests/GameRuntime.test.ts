@@ -3,7 +3,10 @@ import { GameEngine } from '../src/game/GameEngine';
 import { FIXED_STEP_MS } from '../src/game/constants';
 import { GameRuntime } from '../src/runtime/GameRuntime';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe('GameRuntime', () => {
   it('flushes commands and synchronizes consumers immediately without advancing time', () => {
@@ -201,5 +204,106 @@ describe('GameRuntime', () => {
     const runtime = new GameRuntime(new GameEngine(), { canvas });
     runtime.resize();
     expect([canvas.width, canvas.height]).toEqual([1280, 720]);
+  });
+
+  it('composes presentation and effects before a four-input canvas render and resets both before flush', async () => {
+    vi.resetModules();
+    document.body.innerHTML = '<canvas id="game-canvas"></canvas><div id="ui-root"></div>';
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+
+    const seeded = new GameEngine({ spawning: false });
+    seeded.start();
+    let snapshot = { ...seeded.getSnapshot(), elapsedMs: 100 };
+    const order: string[] = [];
+    const renderInputs: unknown[][] = [];
+    let runtimeOptions: {
+      onEvents?(events: readonly unknown[]): void;
+      onStep?(ms: number): void;
+      render?(alpha: number): void;
+    } = {};
+    let screenActions: { start(): void } | null = null;
+    let effectsState = { channel: 'effects-live' };
+    let presentationState = { channel: 'presentation-live' };
+
+    class FakeEngine {
+      public getSnapshot() { order.push('engine-snapshot'); return snapshot; }
+      public enqueue() {}
+      public start() { snapshot = { ...snapshot, elapsedMs: 0 }; }
+      public restart() { snapshot = { ...snapshot, elapsedMs: 0 }; }
+      public returnToMenu() { snapshot = { ...snapshot, elapsedMs: 0, mode: 'menu' }; }
+    }
+    class FakeEffects {
+      public consume() { order.push('effects-consume'); }
+      public update() { order.push('effects-update'); }
+      public snapshot() { return effectsState; }
+      public reset() { order.push('effects-reset'); effectsState = { channel: 'effects-empty' }; }
+    }
+    class FakePresentation {
+      public consume() { order.push('presentation-consume'); }
+      public update() { order.push('presentation-update'); }
+      public snapshot() { return presentationState; }
+      public reset() { order.push('presentation-reset'); presentationState = { channel: 'presentation-empty' }; }
+    }
+    class FakeRenderer {
+      public resize() {}
+      public render(...inputs: unknown[]) { order.push('canvas-render'); renderInputs.push(inputs); }
+    }
+    class FakeScreens {
+      public bind(actions: { start(): void }) { screenActions = actions; }
+      public render() { order.push('screen-render'); }
+      public destroy() {}
+    }
+    class FakeInput { public start() {} public stop() {} }
+    class FakeRuntime {
+      public constructor(_engine: unknown, options: typeof runtimeOptions) { runtimeOptions = options; }
+      public start() {}
+      public stop() {}
+      public resetTiming() { order.push('runtime-reset'); }
+      public flush() {
+        order.push('runtime-flush');
+        runtimeOptions.onEvents?.([]);
+        runtimeOptions.render?.(0);
+      }
+      public advanceTime() {}
+      public renderGameToText() { return '{}'; }
+    }
+
+    const mocked = [
+      '../src/game/GameEngine', '../src/render/EffectsSystem', '../src/presentation/PresentationSystem',
+      '../src/render/CanvasRenderer', '../src/ui/ScreenController', '../src/runtime/InputController',
+      '../src/runtime/GameRuntime',
+    ];
+    vi.doMock('../src/game/GameEngine', () => ({ GameEngine: FakeEngine }));
+    vi.doMock('../src/render/EffectsSystem', () => ({ EffectsSystem: FakeEffects }));
+    vi.doMock('../src/presentation/PresentationSystem', () => ({ PresentationSystem: FakePresentation }));
+    vi.doMock('../src/render/CanvasRenderer', () => ({ CanvasRenderer: FakeRenderer }));
+    vi.doMock('../src/ui/ScreenController', () => ({ ScreenController: FakeScreens }));
+    vi.doMock('../src/runtime/InputController', () => ({ InputController: FakeInput }));
+    vi.doMock('../src/runtime/GameRuntime', () => ({ GameRuntime: FakeRuntime }));
+
+    try {
+      await import('../src/main');
+      order.length = 0;
+      runtimeOptions.onEvents?.([]);
+      runtimeOptions.onStep?.(FIXED_STEP_MS);
+      runtimeOptions.render?.(0.5);
+      expect(order).toEqual([
+        'engine-snapshot', 'presentation-consume', 'effects-consume',
+        'engine-snapshot', 'presentation-update', 'effects-update',
+        'canvas-render', 'screen-render',
+      ]);
+      expect(renderInputs.at(-1)).toHaveLength(4);
+
+      order.length = 0;
+      screenActions!.start();
+      expect(order.slice(0, 4)).toEqual([
+        'effects-reset', 'presentation-reset', 'runtime-reset', 'runtime-flush',
+      ]);
+      expect(renderInputs.at(-1)?.[1]).toEqual({ channel: 'effects-empty' });
+      expect(renderInputs.at(-1)?.[2]).toEqual({ channel: 'presentation-empty' });
+    } finally {
+      for (const module of mocked) vi.doUnmock(module);
+      vi.resetModules();
+    }
   });
 });

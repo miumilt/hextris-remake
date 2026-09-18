@@ -166,6 +166,7 @@ describe('progression effects', () => {
     ]);
 
     expect(effects.snapshot()).toMatchObject({
+      reducedMotion: true,
       assemblies: [], fragments: [], bonusImpact: { bonus: 'pulse', removedCount: 0 },
       particles: [], flashes: [], shockwaves: [],
       shake: { magnitude: 0, remainingMs: 0 },

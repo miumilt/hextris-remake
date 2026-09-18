@@ -107,6 +107,7 @@ export interface ScreenFlash {
 }
 
 export interface EffectsSnapshot {
+  readonly reducedMotion: boolean;
   readonly assemblies: readonly BlockAssembly[];
   readonly fragments: readonly FractureFragment[];
   readonly bonusImpact: BonusImpact | null;
@@ -365,6 +366,7 @@ export class EffectsSystem {
       remainingMs: Math.max(0, this.combo.lifetimeMs - this.combo.ageMs),
     });
     return Object.freeze({
+      reducedMotion: this.reducedMotion,
       assemblies,
       fragments,
       bonusImpact: this.bonusImpact === null ? null : Object.freeze({ ...this.bonusImpact }),

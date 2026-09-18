@@ -472,6 +472,18 @@ export class CanvasRenderer {
     const progress = ease(rawProgress);
     const life = Math.max(0, 1 - rawProgress);
 
+    if (effects.reducedMotion) {
+      ctx.save();
+      ctx.globalAlpha = life * 0.28;
+      ctx.strokeStyle = VISUAL_COLORS.ink;
+      ctx.lineWidth = 1.5 / this.scale;
+      this.path(hexPoints(ORIGIN, HEX_APOTHEM + 16, -TURN));
+      ctx.stroke();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      return;
+    }
+
     // Activation remains legible even when a removal bonus finds no targets,
     // without drawing fragments or implying that a plate was destroyed.
     if (impact.removedCount === 0 && impact.bonus !== 'slow') {
