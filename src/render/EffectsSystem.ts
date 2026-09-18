@@ -1,18 +1,22 @@
 import { BLOCK_DEPTH, HEX_APOTHEM, SIDE_COUNT } from '../game/constants';
 import type { BlockColor, CellRef, GameEvent } from '../game/types';
+import type { BonusType } from '../game/progressionTypes';
 import type { Point } from './geometry';
 
 const MAX_PARTICLES = 180;
 const MAX_SHOCKWAVES = 12;
 const MAX_LABELS = 6;
-const PARTICLES_PER_CLEAR = 6;
-const PARTICLE_LIFETIME_MS = 700;
-const PARTICLE_BURST_DELAY_MS = 70;
+const MAX_ASSEMBLIES = 36;
+const MAX_FRAGMENTS = 180;
 const FLASH_LIFETIME_MS = 160;
 const SHAKE_LIFETIME_MS = 120;
 const COMBO_LIFETIME_MS = 360;
 const CLEAR_SHOCKWAVE_LIFETIME_MS = 360;
 const TOP_SIDE_ANGLE = -Math.PI / 2;
+const ASSEMBLY_LIFETIME_MS = 180 as const;
+const FRACTURE_LIFETIME_MS = 700;
+const FRACTURE_ANTICIPATION_MS = 70;
+const BONUS_IMPACT_LIFETIME_MS = 620 as const;
 
 const progressionLabel = (value: string): string => value.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 
@@ -27,6 +31,35 @@ export interface EffectParticle {
   readonly ageMs: number;
   readonly lifetimeMs: number;
   readonly burstDelayMs: number;
+}
+
+export interface BlockAssembly {
+  readonly blockId: number;
+  readonly lane: number;
+  readonly color: BlockColor;
+  readonly ageMs: number;
+  readonly lifetimeMs: 180;
+}
+
+export interface FractureFragment {
+  readonly x: number;
+  readonly y: number;
+  readonly vx: number;
+  readonly vy: number;
+  readonly rotation: number;
+  readonly spin: number;
+  readonly size: number;
+  readonly color: BlockColor;
+  readonly ageMs: number;
+  readonly lifetimeMs: number;
+  readonly anticipationMs: number;
+}
+
+export interface BonusImpact {
+  readonly bonus: BonusType;
+  readonly removedCount: number;
+  readonly ageMs: number;
+  readonly lifetimeMs: 620;
 }
 
 export interface LandingFlash {
@@ -74,6 +107,9 @@ export interface ScreenFlash {
 }
 
 export interface EffectsSnapshot {
+  readonly assemblies: readonly BlockAssembly[];
+  readonly fragments: readonly FractureFragment[];
+  readonly bonusImpact: BonusImpact | null;
   readonly particles: readonly EffectParticle[];
   readonly flashes: readonly LandingFlash[];
   readonly shake: CameraShake;
@@ -108,6 +144,11 @@ interface MutableParticle {
   burstDelayMs: number;
 }
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
+type MutableAssembly = Mutable<BlockAssembly>;
+type MutableFragment = Mutable<FractureFragment>;
+type MutableBonusImpact = Mutable<BonusImpact>;
+
 interface MutableFlash extends Omit<LandingFlash, 'ageMs'> {
   ageMs: number;
 }
@@ -120,6 +161,9 @@ interface MutableShockwave extends Omit<Shockwave, 'ageMs'> { ageMs: number; }
 interface MutableLabel extends Omit<EffectLabel, 'ageMs'> { ageMs: number; }
 
 export class EffectsSystem {
+  private assemblies: MutableAssembly[] = [];
+  private fragments: MutableFragment[] = [];
+  private bonusImpact: MutableBonusImpact | null = null;
   private particles: MutableParticle[] = [];
   private flashes: MutableFlash[] = [];
   private shakeMagnitude = 0;
@@ -144,6 +188,17 @@ export class EffectsSystem {
 
     for (const event of events) {
       switch (event.type) {
+        case 'blockSpawned':
+          if (!this.reducedMotion) {
+            this.assemblies.push({
+              blockId: event.block.id,
+              lane: event.block.lane,
+              color: event.block.color,
+              ageMs: 0,
+              lifetimeMs: ASSEMBLY_LIFETIME_MS,
+            });
+          }
+          break;
         case 'blockLanded':
           this.impact(2, 70);
           if (!this.reducedMotion) {
@@ -156,12 +211,12 @@ export class EffectsSystem {
           }
           break;
         case 'matchCleared':
-          for (const cell of event.cells) this.addClearParticles(
+          for (const cell of event.cells) this.addFractures(
             cell,
             event.color,
             center,
             orientation,
-            event.chain > 1 ? PARTICLES_PER_CLEAR + event.chain * 2 : PARTICLES_PER_CLEAR,
+            event.chain > 1 ? Math.min(12, 8 + event.chain) : 8,
           );
           this.impact(Math.min(8, 2 + event.chain * 2), SHAKE_LIFETIME_MS, 60);
           this.addShockwave({
@@ -184,7 +239,34 @@ export class EffectsSystem {
             };
           }
           break;
+        case 'bonusActivated':
+          this.bonusImpact = {
+            bonus: event.bonus,
+            removedCount: 0,
+            ageMs: 0,
+            lifetimeMs: BONUS_IMPACT_LIFETIME_MS,
+          };
+          if (event.bonus === 'slow') {
+            this.addShockwave({ ...center, color: 'ivory', ageMs: 0, lifetimeMs: 520, intensity: 0.65 });
+            this.flash('ink', 0.35, 100);
+          }
+          break;
         case 'bonusRemoved':
+          this.bonusImpact = {
+            bonus: event.bonus,
+            removedCount: event.cells.length,
+            ageMs: 0,
+            lifetimeMs: BONUS_IMPACT_LIFETIME_MS,
+          };
+          if (event.bonus !== 'slow') {
+            event.cells.forEach((cell, index) => {
+              const color = event.blocks[index]?.color ?? event.blocks[0]?.color ?? 'coral';
+              const delay = event.bonus === 'cleanse'
+                ? index * 28
+                : event.bonus === 'colorBreak' ? (index % 4) * 24 : 0;
+              this.addFractures(cell, color, center, orientation, 8, delay, event.bonus);
+            });
+          }
           this.impact(7, 180, 80);
           this.addShockwave({
             ...center,
@@ -216,13 +298,32 @@ export class EffectsSystem {
       }
     }
 
+    this.assemblies = this.assemblies.slice(-MAX_ASSEMBLIES);
+    this.fragments = this.fragments.slice(-MAX_FRAGMENTS);
     this.particles = this.particles.slice(-MAX_PARTICLES);
     this.shockwaves = this.shockwaves.slice(-MAX_SHOCKWAVES);
     this.labels = this.labels.slice(-MAX_LABELS);
   }
 
   public update(deltaMs: number): void {
-    const dt = Number.isFinite(deltaMs) ? Math.max(0, Math.min(deltaMs, 50)) : 0;
+    const timelineDt = Number.isFinite(deltaMs) ? Math.max(0, deltaMs) : 0;
+    const dt = Math.min(timelineDt, 50);
+    for (const assembly of this.assemblies) assembly.ageMs += timelineDt;
+    for (const fragment of this.fragments) {
+      const activeMs = this.activeParticleDuration(fragment.ageMs, dt, fragment.anticipationMs);
+      fragment.ageMs += dt;
+      if (activeMs <= 0) continue;
+      const activeSeconds = activeMs / 1000;
+      const speed = Math.hypot(fragment.vx, fragment.vy);
+      if (speed > 0) {
+        fragment.vx += (fragment.vx / speed) * 38 * activeSeconds;
+        fragment.vy += (fragment.vy / speed) * 38 * activeSeconds;
+      }
+      fragment.x += fragment.vx * activeSeconds;
+      fragment.y += fragment.vy * activeSeconds;
+      fragment.rotation += fragment.spin * activeSeconds;
+    }
+    if (this.bonusImpact !== null) this.bonusImpact.ageMs += timelineDt;
     for (const particle of this.particles) {
       const activeMs = this.activeParticleDuration(particle.ageMs, dt, particle.burstDelayMs);
       particle.ageMs += dt;
@@ -241,6 +342,9 @@ export class EffectsSystem {
     }
     this.combo.ageMs += dt;
 
+    this.assemblies = this.assemblies.filter((assembly) => assembly.ageMs < assembly.lifetimeMs).slice(-MAX_ASSEMBLIES);
+    this.fragments = this.fragments.filter((fragment) => fragment.ageMs < fragment.lifetimeMs).slice(-MAX_FRAGMENTS);
+    if (this.bonusImpact !== null && this.bonusImpact.ageMs >= this.bonusImpact.lifetimeMs) this.bonusImpact = null;
     this.particles = this.particles.filter((particle) => particle.ageMs < particle.lifetimeMs).slice(-MAX_PARTICLES);
     this.flashes = this.flashes.filter((flash) => flash.ageMs < flash.lifetimeMs);
     this.shockwaves = this.shockwaves.filter((shockwave) => shockwave.ageMs < shockwave.lifetimeMs);
@@ -250,6 +354,8 @@ export class EffectsSystem {
   }
 
   public snapshot(): EffectsSnapshot {
+    const assemblies = Object.freeze(this.assemblies.map((assembly) => Object.freeze({ ...assembly })));
+    const fragments = Object.freeze(this.fragments.map((fragment) => Object.freeze({ ...fragment })));
     const particles = Object.freeze(this.particles.map((particle) => Object.freeze({ ...particle })));
     const flashes = Object.freeze(this.flashes.map((flash) => Object.freeze({ ...flash })));
     const shockwaves = Object.freeze(this.shockwaves.map((shockwave) => Object.freeze({ ...shockwave })));
@@ -259,6 +365,9 @@ export class EffectsSystem {
       remainingMs: Math.max(0, this.combo.lifetimeMs - this.combo.ageMs),
     });
     return Object.freeze({
+      assemblies,
+      fragments,
+      bonusImpact: this.bonusImpact === null ? null : Object.freeze({ ...this.bonusImpact }),
       particles,
       flashes,
       shake: Object.freeze({ magnitude: this.shakeMagnitude, remainingMs: this.shakeRemainingMs }),
@@ -271,6 +380,9 @@ export class EffectsSystem {
   }
 
   public reset(): void {
+    this.assemblies = [];
+    this.fragments = [];
+    this.bonusImpact = null;
     this.particles = [];
     this.flashes = [];
     this.shakeMagnitude = 0;
@@ -282,12 +394,14 @@ export class EffectsSystem {
     this.hitStopRemainingMs = 0;
   }
 
-  private addClearParticles(
+  private addFractures(
     cell: CellRef,
     color: BlockColor,
     center: Point,
     orientation: number,
-    count: number = PARTICLES_PER_CLEAR,
+    count: number,
+    extraDelayMs = 0,
+    bonus?: BonusType,
   ): void {
     if (this.reducedMotion) return;
     const position = this.cellPosition(cell, center, orientation);
@@ -296,18 +410,20 @@ export class EffectsSystem {
     const tangent = { x: -normal.y, y: normal.x };
 
     for (let index = 0; index < count; index += 1) {
-      const tangentSpeed = (this.random() - 0.5) * 180;
-      const outwardSpeed = 70 + this.random() * 90;
-      this.particles.push({
+      const tangentScale = bonus === 'pulse' ? 95 : 150;
+      const tangentSpeed = (this.random() - 0.5) * tangentScale;
+      const outwardSpeed = (bonus === 'pulse' ? 145 : 82) + this.random() * 88;
+      this.fragments.push({
         ...position,
         vx: normal.x * outwardSpeed + tangent.x * tangentSpeed,
         vy: normal.y * outwardSpeed + tangent.y * tangentSpeed,
         rotation: this.random() * Math.PI * 2,
         spin: (this.random() - 0.5) * 12,
+        size: 5 + this.random() * 6,
         color,
         ageMs: 0,
-        lifetimeMs: PARTICLE_LIFETIME_MS,
-        burstDelayMs: PARTICLE_BURST_DELAY_MS,
+        lifetimeMs: FRACTURE_LIFETIME_MS + extraDelayMs,
+        anticipationMs: FRACTURE_ANTICIPATION_MS + extraDelayMs,
       });
     }
   }

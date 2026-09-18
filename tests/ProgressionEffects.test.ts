@@ -27,7 +27,7 @@ describe('progression effects', () => {
 
     const snapshot = effects.snapshot();
     expect(snapshot.shake).toEqual({ magnitude: 8, remainingMs: 120 });
-    expect(snapshot.particles).toHaveLength(12);
+    expect(snapshot.fragments).toHaveLength(11);
     expect(snapshot.labels).toEqual([
       { text: 'CHAIN ×3', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
     ]);
@@ -50,12 +50,34 @@ describe('progression effects', () => {
     ], { center: { x: 40, y: 50 } });
 
     expect(effects.snapshot()).toMatchObject({
+      bonusImpact: { bonus: 'pulse', removedCount: 1, ageMs: 0, lifetimeMs: 620 },
       shake: { magnitude: 7, remainingMs: 180 },
       hitStopRemainingMs: 80,
       shockwaves: [{ x: 40, y: 50, color: 'ivory', ageMs: 0, lifetimeMs: 520, intensity: 1 }],
       labels: [{ text: 'PULSE', tone: 'coral', ageMs: 0, lifetimeMs: 620 }],
       screenFlash: { tone: 'coral', intensity: 0.75, remainingMs: 100 },
     });
+    expect(effects.snapshot().fragments).toHaveLength(8);
+    expect(effects.snapshot().fragments[0]).toMatchObject({ color: 'teal', anticipationMs: 70 });
+    expect(effects.snapshot().fragments[0]!.vy).toBeLessThan(0);
+  });
+
+  it('sequences cleanse and color break fragments in deterministic waves', () => {
+    const cells = [{ side: 0, index: 2 }, { side: 1, index: 1 }];
+    const blocks = [{ id: 1, color: 'sky' as const }, { id: 2, color: 'amber' as const }];
+    const cleanse = new EffectsSystem({ random: () => 0.5 });
+    cleanse.consume([{
+      type: 'bonusRemoved', bonus: 'cleanse', cells, blocks, scoreDelta: 80,
+    }]);
+    expect(cleanse.snapshot().fragments[0]?.anticipationMs).toBe(70);
+    expect(cleanse.snapshot().fragments[8]?.anticipationMs).toBe(98);
+
+    const colorBreak = new EffectsSystem({ random: () => 0.5 });
+    colorBreak.consume([{
+      type: 'bonusRemoved', bonus: 'colorBreak', cells, blocks, scoreDelta: 80,
+    }]);
+    expect(colorBreak.snapshot().fragments[0]?.anticipationMs).toBe(70);
+    expect(colorBreak.snapshot().fragments[8]?.anticipationMs).toBe(94);
   });
 
   it('announces anomaly starts transiently without retaining a cue when they end', () => {
@@ -129,7 +151,7 @@ describe('progression effects', () => {
 
     for (let update = 0; update < 13; update += 1) effects.update(50);
     expect(effects.snapshot()).toMatchObject({
-      shockwaves: [], labels: [], screenFlash: null, hitStopRemainingMs: 0,
+      bonusImpact: null, shockwaves: [], labels: [], screenFlash: null, hitStopRemainingMs: 0,
     });
   });
 
@@ -144,6 +166,7 @@ describe('progression effects', () => {
     ]);
 
     expect(effects.snapshot()).toMatchObject({
+      assemblies: [], fragments: [], bonusImpact: { bonus: 'pulse', removedCount: 0 },
       particles: [], flashes: [], shockwaves: [],
       shake: { magnitude: 0, remainingMs: 0 },
       hitStopRemainingMs: 0,
@@ -168,6 +191,7 @@ describe('progression effects', () => {
     effects.reset();
 
     expect(effects.snapshot()).toMatchObject({
+      assemblies: [], fragments: [], bonusImpact: null,
       particles: [], flashes: [], shockwaves: [], labels: [], screenFlash: null,
       shake: { magnitude: 0, remainingMs: 0 }, hitStopRemainingMs: 0,
     });
