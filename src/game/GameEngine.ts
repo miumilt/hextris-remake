@@ -166,13 +166,17 @@ export class GameEngine {
       const profile = this.director.getWaveProfile();
       const spawnSpeed = profile.speed * modifiers.speedMultiplier;
       if (directorTick.bonusDue) this.scheduleBonus(spawnSpeed, events);
+      let spawned: readonly FallingBlock[] = [];
       if (this.spawning) {
-        this.spawn(this.spawner.update(motionDeltaMs, {
+        spawned = this.spawn(this.spawner.update(motionDeltaMs, {
           ...profile,
           speed: spawnSpeed,
         }));
       }
       this.moveAndLand(events);
+      for (const block of spawned) {
+        events.push(Object.freeze({ type: 'blockSpawned', block }));
+      }
       this.moveAndCollectBonuses(events);
       this.resolveWorld(events);
 
@@ -330,8 +334,9 @@ export class GameEngine {
     events.push(Object.freeze({ type: 'upgradeOffered', choices, selectedIndex: offer.selectedIndex }));
   }
 
-  private spawn(requests: readonly SpawnRequest[]): void {
+  private spawn(requests: readonly SpawnRequest[]): readonly FallingBlock[] {
     const active = new Set(this.director.getSnapshot().anomalies.map((anomaly) => anomaly.type));
+    const spawned: FallingBlock[] = [];
     for (const request of requests) {
       let block: FallingBlock = {
         ...this.createBlock(request.color),
@@ -361,9 +366,12 @@ export class GameEngine {
           mirageVisible: true,
         };
       }
-      this.falling.push(block);
-      this.fallingBornAt.set(block.id, this.motionElapsedMs);
+      const frozen = Object.freeze({ ...block });
+      this.falling.push(frozen);
+      this.fallingBornAt.set(frozen.id, this.motionElapsedMs);
+      spawned.push(frozen);
     }
+    return Object.freeze(spawned);
   }
 
   private adjacentLane(lane: number): number {
@@ -409,7 +417,8 @@ export class GameEngine {
 
       const collection = this.bonuses.collect(bonus.type);
       this.fallingBonusBornAt.delete(bonus.id);
-      events.push(Object.freeze({ type: 'bonusCollected', bonus: collection.collected }));
+      const token = Object.freeze({ ...moved, distance: HEX_APOTHEM });
+      events.push(Object.freeze({ type: 'bonusCollected', bonus: collection.collected, token }));
       if (collection.replaced !== null) {
         events.push(Object.freeze({
           type: 'bonusReplaced',

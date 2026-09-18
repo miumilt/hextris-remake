@@ -57,7 +57,13 @@ describe('GameEngine endless progression', () => {
       expect.objectContaining({ type: 'colorBreak', distance: 520 }),
     ]);
     const landed = game.update(3_000);
-    expect(landed).toContainEqual({ type: 'bonusCollected', bonus: 'colorBreak' });
+    expect(landed).toContainEqual({
+      type: 'bonusCollected',
+      bonus: 'colorBreak',
+      token: expect.objectContaining({
+        id: expect.any(Number), type: 'colorBreak', lane: expect.any(Number), distance: 72,
+      }),
+    });
     expect(game.getSnapshot()).toMatchObject({ bonus: { stored: 'colorBreak' }, fallingBonuses: [] });
     expect(game.getSnapshot().stacks.every((stack) => stack.length === 0)).toBe(true);
   });
@@ -72,7 +78,13 @@ describe('GameEngine endless progression', () => {
     const events = game.update(3_000);
 
     expect(events).toEqual(expect.arrayContaining([
-      { type: 'bonusCollected', bonus: 'slow' },
+      {
+        type: 'bonusCollected',
+        bonus: 'slow',
+        token: expect.objectContaining({
+          id: expect.any(Number), type: 'slow', lane: expect.any(Number), distance: 72,
+        }),
+      },
       { type: 'bonusReplaced', previous: 'colorBreak', replacement: 'slow' },
     ]));
     expect(game.getSnapshot().bonus.stored).toBe('slow');

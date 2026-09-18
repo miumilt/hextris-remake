@@ -52,6 +52,7 @@ export type GameCommand =
 
 export type GameEvent =
   | DirectorEvent
+  | { readonly type: 'blockSpawned'; readonly block: FallingBlock }
   | { readonly type: 'blockLanded'; readonly block: GridBlock; readonly cell: CellRef }
   | {
       readonly type: 'blockColorShifted';
@@ -68,7 +69,7 @@ export type GameEvent =
     }
   | { readonly type: 'comboChanged'; readonly multiplier: number }
   | { readonly type: 'bonusScheduled'; readonly bonus: FallingBonus }
-  | { readonly type: 'bonusCollected'; readonly bonus: BonusType }
+  | { readonly type: 'bonusCollected'; readonly bonus: BonusType; readonly token: FallingBonus }
   | { readonly type: 'bonusReplaced'; readonly previous: BonusType; readonly replacement: BonusType }
   | { readonly type: 'bonusActivated'; readonly bonus: BonusType }
   | {

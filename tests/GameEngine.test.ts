@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { GameEngine } from '../src/game/GameEngine';
 
 describe('GameEngine', () => {
+  it('describes newly spawned blocks without changing their snapshot', () => {
+    const game = new GameEngine({ randomSeed: 11 });
+    game.start();
+
+    const events = game.update(2700);
+    const spawned = events.find((event) => event.type === 'blockSpawned');
+
+    expect(spawned).toMatchObject({
+      type: 'blockSpawned',
+      block: {
+        id: expect.any(Number), lane: expect.any(Number), color: expect.any(String), distance: 520,
+      },
+    });
+    expect(game.getSnapshot().falling).toContainEqual(spawned?.block);
+  });
+
   it('lands exactly at the occupied stack boundary, but not just before it', () => {
     const game = new GameEngine({ spawning: false });
     game.start();
