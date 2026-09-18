@@ -6,6 +6,7 @@ import { InputController } from './runtime/InputController';
 import { CanvasRenderer } from './render/CanvasRenderer';
 import { EffectsSystem } from './render/EffectsSystem';
 import { ScreenController } from './ui/ScreenController';
+import { PresentationSystem } from './presentation/PresentationSystem';
 
 document.title = APP_TITLE;
 
@@ -15,36 +16,49 @@ if (!canvas || !root) throw new Error('Game canvas or screen root is missing');
 
 const engine = new GameEngine();
 const effects = new EffectsSystem({ reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches });
+const presentation = new PresentationSystem();
 const renderer = new CanvasRenderer(canvas);
 const screens = new ScreenController(root);
 const input = new InputController(window, (command) => engine.enqueue(command), () => engine.getSnapshot().mode);
 let snapshot = engine.getSnapshot();
 let effectsSnapshot = effects.snapshot();
+let presentationSnapshot = presentation.snapshot();
 const runtime = new GameRuntime(engine, {
   canvas,
   onEvents: (events) => {
     const next = engine.getSnapshot();
-    if (next.elapsedMs < snapshot.elapsedMs || (next.mode === 'menu') !== (snapshot.mode === 'menu')) effects.reset();
+    if (next.elapsedMs < snapshot.elapsedMs || (next.mode === 'menu') !== (snapshot.mode === 'menu')) {
+      effects.reset();
+      presentation.reset();
+    }
     snapshot = next;
     effects.consume(events, { orientation: snapshot.orientation });
+    presentation.consume(events);
     effectsSnapshot = effects.snapshot();
+    presentationSnapshot = presentation.snapshot();
   },
   onStep: (ms) => {
     snapshot = engine.getSnapshot();
-    if (snapshot.mode === 'playing') effects.update(ms);
+    if (snapshot.mode === 'playing') {
+      effects.update(ms);
+      presentation.update(ms);
+    }
     effectsSnapshot = effects.snapshot();
+    presentationSnapshot = presentation.snapshot();
   },
   onResize: (width, height, dpr) => renderer.resize(width, height, dpr),
   render: (alpha) => {
     renderer.render(snapshot, effectsSnapshot, alpha);
-    screens.render(snapshot);
+    screens.render(snapshot, presentationSnapshot);
   },
 });
 
 const resetSession = (action: () => void): void => {
   action();
   effects.reset();
+  presentation.reset();
   effectsSnapshot = effects.snapshot();
+  presentationSnapshot = presentation.snapshot();
   runtime.resetTiming();
   runtime.flush();
 };

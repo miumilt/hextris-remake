@@ -1,6 +1,7 @@
 import type { GameMode, GameSnapshot } from '../game/types';
 import type { AnomalyType, UpgradeChoice } from '../game/progressionTypes';
 import { getBonusPresentation } from '../presentation/bonusPresentation';
+import type { PresentationSnapshot } from '../presentation/PresentationSystem';
 
 export interface ScreenActions {
   start(): void;
@@ -45,7 +46,7 @@ export class ScreenController {
     this.actions = actions;
   }
 
-  public render(snapshot: GameSnapshot): void {
+  public render(snapshot: GameSnapshot, presentation: PresentationSnapshot): void {
     const { mode } = snapshot;
     if (mode !== this.mode) {
       if (mode !== 'upgrade') this.selectedUpgradeIndex = null;
@@ -63,6 +64,7 @@ export class ScreenController {
           <div class="cycle-hud"><span class="cycle-label"></span><div class="cycle-rule" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div></div>
           <div class="upgrade-rail" aria-label="Acquired upgrades"></div>
           <div class="bonus-host"></div><div class="anomaly-host"></div>
+          <div class="presentation-host" aria-live="polite" aria-atomic="true"></div>
         </div>
           <button type="button" class="pause-button" data-action="pause" aria-label="Pause game"><span aria-hidden="true">Ⅱ</span></button>`;
       } else if (mode === 'upgrade') {
@@ -80,7 +82,7 @@ export class ScreenController {
     }
     const output = this.root.querySelector('output');
     if (output && output.textContent !== String(snapshot.score)) output.textContent = String(snapshot.score);
-    if (mode === 'playing') this.renderPlayingHud(snapshot);
+    if (mode === 'playing') this.renderPlayingHud(snapshot, presentation);
     if (mode === 'upgrade') this.renderUpgradeSelection(snapshot);
   }
 
@@ -109,7 +111,7 @@ export class ScreenController {
     handlers[target.dataset.action ?? '']?.();
   };
 
-  private renderPlayingHud(snapshot: GameSnapshot): void {
+  private renderPlayingHud(snapshot: GameSnapshot, presentation: PresentationSnapshot): void {
     const progress = Math.round(snapshot.cycle.progress * 100);
     const cycleRule = this.root.querySelector<HTMLElement>('.cycle-rule');
     cycleRule?.setAttribute('aria-valuenow', String(progress));
@@ -120,11 +122,30 @@ export class ScreenController {
 
     const bonusHost = this.root.querySelector<HTMLElement>('.bonus-host');
     if (bonusHost) {
-      if (snapshot.bonus.stored === null) bonusHost.innerHTML = '';
-      else {
+      let bonusMarkup = '';
+      if (snapshot.bonus.stored !== null) {
         const bonus = getBonusPresentation(snapshot.bonus.stored);
-        bonusHost.innerHTML = `<div class="bonus-slot" aria-label="Stored bonus: ${bonus.label}"><span aria-hidden="true">${bonus.glyph}</span><small>${bonus.label}</small></div>`;
+        const attention = presentation.slotAttentionRemainingMs > 0 ? ' attention' : '';
+        const replaced = presentation.replacedBonus === null ? '' : ' replaced';
+        const slowProgress = Math.max(0, Math.min(1, snapshot.bonus.slowRemainingMs / 6000));
+        const slowRule = snapshot.bonus.stored === 'slow'
+          ? `<div class="slow-rule" role="progressbar" aria-label="Slow remaining" aria-valuemin="0" aria-valuemax="6000" aria-valuenow="${snapshot.bonus.slowRemainingMs}" style="--slow-progress:${Math.round(slowProgress * 100)}%"><span></span></div>`
+          : '';
+        bonusMarkup = `<div class="bonus-slot${attention}${replaced}" data-tone="${bonus.tone}" aria-label="Stored bonus: ${bonus.label}">
+          <span class="bonus-glyph" aria-hidden="true">${bonus.glyph}</span>
+          <span class="bonus-copy"><strong>${bonus.label}</strong><small><kbd>SPACE</kbd><span aria-hidden="true"> — </span>ACTIVATE</small>${slowRule}</span>
+        </div>`;
       }
+      if (bonusHost.innerHTML !== bonusMarkup) bonusHost.innerHTML = bonusMarkup;
+    }
+
+    const presentationHost = this.root.querySelector<HTMLElement>('.presentation-host');
+    if (presentationHost) {
+      const notice = presentation.notice;
+      const noticeMarkup = notice === null ? '' : `<div class="presentation-notice" data-tone="${notice.tone}" role="${notice.assertive ? 'alert' : 'status'}">
+        <strong>${escapeHtml(notice.title)}</strong>${notice.body ? `<span>${escapeHtml(notice.body)}</span>` : ''}
+      </div>`;
+      if (presentationHost.innerHTML !== noticeMarkup) presentationHost.innerHTML = noticeMarkup;
     }
 
     const upgradeRail = this.root.querySelector<HTMLElement>('.upgrade-rail');

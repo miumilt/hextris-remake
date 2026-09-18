@@ -42,9 +42,30 @@ h1 { font-family: Impact, 'Arial Narrow', 'Franklin Gothic Heavy', sans-serif; f
 .upgrade-rail { position: absolute; left: 34px; top: 50%; display: flex; width: 80px; min-height: 18px; gap: 5px; align-items: center; transform: translateY(-50%); }
 .upgrade-rail::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #51564f; }
 .upgrade-mark { z-index: 1; display: block; width: 7px; height: 12px; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: #d9d6ca; }
-.bonus-slot { position: absolute; left: calc(50% + clamp(245px, 24vw, 390px)); top: calc(50% + clamp(145px, 18vh, 220px)); display: grid; grid-template-columns: 26px auto; align-items: center; gap: 9px; color: #eee9df; }
-.bonus-slot > span { display: grid; width: 26px; height: 26px; place-items: center; clip-path: polygon(50% 0, 100% 23%, 88% 85%, 50% 100%, 12% 85%, 0 23%); background: #d0ad4e; color: #171918; font: 12px/1 var(--mono); }
-.bonus-slot small { font: 9px/1.25 var(--mono); letter-spacing: .16em; color: #a3a69e; writing-mode: vertical-rl; }
+.bonus-slot { --bonus-accent: #d0ad4e; position: absolute; right: 34px; bottom: 34px; display: grid; grid-template-columns: 48px minmax(138px, auto); min-width: 220px; min-height: 64px; align-items: center; gap: 13px; padding: 9px 17px 9px 10px; clip-path: var(--cut); background: #282c28; box-shadow: inset 0 0 0 1px #4b5049; color: #eee9df; }
+.bonus-slot[data-tone='sky'] { --bonus-accent: #9bbfc5; }
+.bonus-slot[data-tone='amber'] { --bonus-accent: #d0ad4e; }
+.bonus-slot[data-tone='teal'] { --bonus-accent: #69aaa1; }
+.bonus-slot[data-tone='coral'] { --bonus-accent: #d98677; }
+.bonus-slot::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; transform: scaleX(.28); transform-origin: left; background: var(--bonus-accent); }
+.bonus-slot.attention { animation: bonus-attention 460ms cubic-bezier(.2, .8, .2, 1) both; }
+.bonus-slot.attention::after { animation: bonus-rule 620ms cubic-bezier(.2, .8, .2, 1) both; }
+.bonus-slot.replaced .bonus-glyph { animation: bonus-replace 360ms ease-out both; }
+.bonus-glyph { display: grid; width: 44px; height: 44px; place-items: center; clip-path: polygon(50% 0, 100% 23%, 88% 85%, 50% 100%, 12% 85%, 0 23%); background: var(--bonus-accent); color: #171918; font: 700 22px/1 var(--mono); }
+.bonus-copy { display: grid; gap: 5px; min-width: 0; }
+.bonus-copy strong { font: 800 15px/1 'Arial Narrow', 'Franklin Gothic Medium', Impact, sans-serif; letter-spacing: .06em; white-space: nowrap; }
+.bonus-copy small { font: 9px/1.25 var(--mono); letter-spacing: .12em; color: #a3a69e; white-space: nowrap; }
+.bonus-copy kbd { padding: 1px 4px; border: 1px solid #676b63; color: #eee9df; font: inherit; }
+.slow-rule { position: relative; width: 100%; height: 2px; overflow: hidden; background: #3d4441; }
+.slow-rule span { display: block; width: var(--slow-progress, 0%); height: 100%; background: var(--bonus-accent); transition: width 80ms linear; }
+.presentation-host { position: absolute; top: 146px; left: 50%; width: min(520px, calc(100vw - 48px)); transform: translateX(-50%); text-align: center; }
+.presentation-notice { display: inline-grid; min-width: 260px; gap: 7px; padding: 12px 27px 11px; border-top: 1px solid #c5c6bb; color: #eee9df; animation: notice-in 180ms ease-out both; }
+.presentation-notice[data-tone='sky'] { border-color: #9bbfc5; }
+.presentation-notice[data-tone='amber'] { border-color: #d0ad4e; }
+.presentation-notice[data-tone='teal'] { border-color: #69aaa1; }
+.presentation-notice[data-tone='coral'] { border-color: #d98677; }
+.presentation-notice strong { font: 800 21px/1 'Arial Narrow', 'Franklin Gothic Medium', Impact, sans-serif; letter-spacing: .07em; }
+.presentation-notice span { color: #aeb0a7; font: 9px/1.35 var(--mono); letter-spacing: .12em; }
 .anomaly-status { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); padding-top: 8px; border-top: 1px solid #a15d54; color: #d98677; font: 700 10px/1 var(--mono); letter-spacing: .18em; white-space: nowrap; animation: anomaly-in 160ms ease-out both; }
 .pause-button { position: absolute; right: 34px; top: 29px; width: 44px; height: 42px; border: 0; clip-path: var(--cut); background: #30342f; color: #c5c6bb; font: 22px/1 var(--mono); }
 .pause-button:hover { background: #464b42; color: #eee9df; }
@@ -86,6 +107,10 @@ body:has(#ui-root[data-transition='start']) #game-canvas { animation: enter-fiel
 @keyframes pause-wipe { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
 @keyframes result-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes anomaly-in { from { opacity: 0; transform: translate(-50%, -5px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes bonus-attention { 0% { transform: scale(.94); } 55% { transform: scale(1.035); } 100% { transform: scale(1); } }
+@keyframes bonus-rule { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes bonus-replace { from { opacity: .2; transform: translateX(-12px) rotate(-10deg); } to { opacity: 1; transform: none; } }
+@keyframes notice-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @media (min-height: 900px) {
   .menu-heading { top: calc(50% - 300px); }
   .menu-actions { top: calc(50% + 156px); }
@@ -97,4 +122,5 @@ body:has(#ui-root[data-transition='start']) #game-canvas { animation: enter-fiel
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 1ms !important; }
+  .bonus-slot, .bonus-slot::after, .bonus-glyph, .presentation-notice { transform: none !important; }
 }

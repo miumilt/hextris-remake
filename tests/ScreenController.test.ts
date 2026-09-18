@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ScreenController } from '../src/ui/ScreenController';
 import { GameEngine } from '../src/game/GameEngine';
 import type { GameSnapshot } from '../src/game/types';
+import type { PresentationSnapshot } from '../src/presentation/PresentationSystem';
 
 describe('ScreenController', () => {
   let root: HTMLElement;
@@ -13,6 +14,13 @@ describe('ScreenController', () => {
   const snapshot = (overrides: Partial<GameSnapshot> = {}): GameSnapshot => ({
     ...new GameEngine().getSnapshot(),
     ...overrides,
+  });
+  const emptyPresentation = (): PresentationSnapshot => Object.freeze({
+    notice: null,
+    queuedNotices: Object.freeze([]),
+    transfer: null,
+    slotAttentionRemainingMs: 0,
+    replacedBonus: null,
   });
   const actions = (calls: string[] = []) => ({
     start: () => calls.push('start'), resume: () => calls.push('resume'),
@@ -26,23 +34,23 @@ describe('ScreenController', () => {
     const engine = new GameEngine();
     const screen = new ScreenController(root);
     screen.bind({ ...actions(), start: () => engine.start() });
-    screen.render(snapshot({ mode: 'menu' }));
+    screen.render(snapshot({ mode: 'menu' }), emptyPresentation());
     expect(root.querySelector('h1')?.textContent).toBe('HEXTRIS');
     expect(root.textContent).toContain('A / D');
     root.querySelector('button')!.innerHTML = '<span>PLAY</span>';
     (root.querySelector('button span') as HTMLElement).click();
     expect(engine.getSnapshot().mode).toBe('playing');
-    screen.render(snapshot({ mode: 'playing', score: 81 }));
+    screen.render(snapshot({ mode: 'playing', score: 81 }), emptyPresentation());
     expect([...root.querySelectorAll('button')].map(button => button.dataset.action)).toEqual(['pause']);
     expect(root.querySelector('output')?.textContent).toBe('81');
   });
 
   it('preserves focused buttons on same-mode score updates', () => {
     const screen = new ScreenController(root);
-    screen.render(snapshot({ mode: 'playing', score: 0 }));
+    screen.render(snapshot({ mode: 'playing', score: 0 }), emptyPresentation());
     const pause = root.querySelector('button')!;
     pause.focus();
-    screen.render(snapshot({ mode: 'playing', score: 144 }));
+    screen.render(snapshot({ mode: 'playing', score: 144 }), emptyPresentation());
     expect(document.activeElement).toBe(pause);
     expect(root.querySelector('output')?.textContent).toBe('144');
   });
@@ -53,11 +61,11 @@ describe('ScreenController', () => {
     const bindings = { start: () => actions.push('start'), resume: () => actions.push('resume'), restart: () => actions.push('restart'), returnToMenu: () => actions.push('menu'), togglePause: () => actions.push('pause'), selectUpgrade: (index: 0 | 1) => actions.push(`select:${index}`), confirmUpgrade: () => actions.push('confirm') };
     screen.bind(bindings);
     screen.bind(bindings);
-    screen.render(snapshot({ mode: 'playing' })); click('pause');
-    screen.render(snapshot({ mode: 'paused' }));
+    screen.render(snapshot({ mode: 'playing' }), emptyPresentation()); click('pause');
+    screen.render(snapshot({ mode: 'paused' }), emptyPresentation());
     expect([...root.querySelectorAll('button')].map(button => button.dataset.action)).toEqual(['resume', 'restart', 'menu']);
     click('resume'); click('restart'); click('menu');
-    screen.render(snapshot({ mode: 'gameOver', score: 144 }));
+    screen.render(snapshot({ mode: 'gameOver', score: 144 }), emptyPresentation());
     expect(root.textContent).toContain('144');
     expect([...root.querySelectorAll('button')].map(button => button.dataset.action)).toEqual(['retry', 'menu']);
     click('retry'); click('menu');
@@ -72,7 +80,7 @@ describe('ScreenController', () => {
       cycle: { number: 2, phase: 'pressure', elapsedMs: 8_000, durationMs: 55_000, progress: 0.4, warning: ['reverse'], warningRemainingMs: 2_000, anomalies: [] },
       bonus: { stored: 'pulse', slowRemainingMs: 0 },
       upgrades: { levels: { stabilizer: 2, comboRelay: 0, salvage: 1, deepPulse: 0, anomalyShield: 0, lastStand: 0 }, choices: [], selectedIndex: 0 },
-    }));
+    }), emptyPresentation());
     expect(root.querySelector('[aria-label="Score"]')?.textContent).toBe('81');
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40');
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe('Cycle 2, pressure');
@@ -81,9 +89,76 @@ describe('ScreenController', () => {
     expect(root.querySelector('[role="status"]')?.textContent).toContain('REVERSE');
     expect(root.querySelector('[data-action="pause"]')).not.toBeNull();
 
-    screen.render(snapshot({ mode: 'playing' }));
+    screen.render(snapshot({ mode: 'playing' }), emptyPresentation());
     expect(root.querySelector('.bonus-slot')).toBeNull();
     expect(root.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('shows acquisition copy, a readable slot command, attention, and slow time', () => {
+    const screen = new ScreenController(root);
+    const presentation: PresentationSnapshot = Object.freeze({
+      notice: Object.freeze({
+        title: 'SLOW ACQUIRED',
+        body: 'SLOWS FALLING BLOCKS FOR 6 SECONDS',
+        tone: 'sky' as const,
+        priority: 3 as const,
+        ageMs: 0,
+        lifetimeMs: 900,
+        assertive: false,
+      }),
+      queuedNotices: Object.freeze([]),
+      transfer: null,
+      slotAttentionRemainingMs: 2500,
+      replacedBonus: null,
+    });
+
+    screen.render(snapshot({
+      mode: 'playing',
+      bonus: { stored: 'slow', slowRemainingMs: 4200 },
+    }), presentation);
+
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('SLOW ACQUIRED');
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('SLOWS FALLING BLOCKS FOR 6 SECONDS');
+    expect(root.querySelector('.bonus-slot')?.textContent).toContain('SPACE');
+    expect(root.querySelector('.bonus-slot')?.textContent).toContain('ACTIVATE');
+    expect(root.querySelector('.bonus-slot')?.classList.contains('attention')).toBe(true);
+    expect(root.querySelector('[aria-label="Slow remaining"]')?.getAttribute('aria-valuenow')).toBe('4200');
+  });
+
+  it('preserves transient HUD nodes and focus across repeated renders and removal', () => {
+    const screen = new ScreenController(root);
+    const active: PresentationSnapshot = Object.freeze({
+      notice: Object.freeze({
+        title: 'PULSE ACQUIRED',
+        body: 'KNOCKS BLOCKS FROM OUTER SIDES',
+        tone: 'amber' as const,
+        priority: 3 as const,
+        ageMs: 120,
+        lifetimeMs: 900,
+        assertive: false,
+      }),
+      queuedNotices: Object.freeze([]),
+      transfer: null,
+      slotAttentionRemainingMs: 2300,
+      replacedBonus: null,
+    });
+    const occupied = snapshot({ mode: 'playing', bonus: { stored: 'pulse', slowRemainingMs: 0 } });
+
+    screen.render(occupied, active);
+    const notice = root.querySelector('.presentation-notice');
+    const slot = root.querySelector('.bonus-slot');
+    const pause = root.querySelector<HTMLButtonElement>('[data-action="pause"]')!;
+    pause.focus();
+    screen.render(occupied, active);
+
+    expect(root.querySelector('.presentation-notice')).toBe(notice);
+    expect(root.querySelector('.bonus-slot')).toBe(slot);
+    expect(document.activeElement).toBe(pause);
+
+    screen.render(snapshot({ mode: 'playing' }), emptyPresentation());
+    expect(root.querySelector('.presentation-notice')).toBeNull();
+    expect(root.querySelector('.bonus-slot')).toBeNull();
+    expect(document.activeElement).toBe(pause);
   });
 
   it('renders exactly the offered angular upgrade actions and confirms the clicked side', () => {
@@ -100,7 +175,7 @@ describe('ScreenController', () => {
           { id: 'deepPulse', level: 1, maxLevel: 2, label: 'DEEP PULSE', description: 'PULSE HITS +1 SIDE' },
         ],
       },
-    }));
+    }), emptyPresentation());
     const choices = [...root.querySelectorAll<HTMLButtonElement>('[data-action="upgrade"]')];
     expect(choices).toHaveLength(2);
     expect(choices.map((choice) => choice.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
@@ -133,15 +208,15 @@ describe('ScreenController', () => {
         ],
       },
     });
-    screen.render(offer);
+    screen.render(offer, emptyPresentation());
     const choices = [...root.querySelectorAll<HTMLButtonElement>('[data-action="upgrade"]')];
     expect(document.activeElement).toBe(choices[0]);
     const outside = document.createElement('button');
     document.body.append(outside);
     outside.focus();
-    screen.render(offer);
+    screen.render(offer, emptyPresentation());
     expect(document.activeElement).toBe(outside);
-    screen.render({ ...offer, upgrades: { ...offer.upgrades, selectedIndex: 1 } });
+    screen.render({ ...offer, upgrades: { ...offer.upgrades, selectedIndex: 1 } }, emptyPresentation());
     expect(document.activeElement).toBe(choices[1]);
   });
 
@@ -154,7 +229,7 @@ describe('ScreenController', () => {
         selectedIndex: 0,
         choices: [{ id: 'lastStand', level: 0, maxLevel: 1, label: 'LAST STAND', description: 'SURVIVE ONE OVERFLOW' }],
       },
-    }));
+    }), emptyPresentation());
     expect(root.querySelectorAll('[data-action="upgrade"]')).toHaveLength(1);
     expect(root.querySelector('.upgrade-choices')?.classList.contains('singleton')).toBe(true);
   });
@@ -165,9 +240,9 @@ describe('ScreenController', () => {
       mode: 'playing',
       cycle: { number: 2, phase: 'flow', elapsedMs: 24_000, durationMs: 55_000, progress: 0.44, warning: ['inertia'], warningRemainingMs: 600, anomalies: [] },
     });
-    screen.render(warning);
+    screen.render(warning, emptyPresentation());
     const status = root.querySelector('[role="status"]');
-    screen.render(warning);
+    screen.render(warning, emptyPresentation());
     expect(root.querySelector('[role="status"]')).toBe(status);
   });
 });

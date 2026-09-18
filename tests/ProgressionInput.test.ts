@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { GameEngine } from '../src/game/GameEngine';
 import { InputController } from '../src/runtime/InputController';
 import { ScreenController } from '../src/ui/ScreenController';
+import { PresentationSystem } from '../src/presentation/PresentationSystem';
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
@@ -41,12 +42,13 @@ describe('progression keyboard input', () => {
     game.update(3);
     document.body.innerHTML = '<main id="ui-root"></main>';
     const screen = new ScreenController(document.getElementById('ui-root')!);
+    const presentation = new PresentationSystem().snapshot();
     cleanups.push(() => screen.destroy());
-    screen.render(game.getSnapshot());
+    screen.render(game.getSnapshot(), presentation);
     const choices = [...document.querySelectorAll<HTMLButtonElement>('[data-action="upgrade"]')];
     expect(document.activeElement).toBe(choices[0]);
     key(game, 'ArrowRight');
-    screen.render(game.getSnapshot());
+    screen.render(game.getSnapshot(), presentation);
     expect(document.activeElement).toBe(choices[1]);
   });
 
