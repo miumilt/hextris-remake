@@ -4,10 +4,18 @@ import { GameEngine } from '../src/game/GameEngine';
 import type { GameSnapshot } from '../src/game/types';
 import { CanvasRenderer } from '../src/render/CanvasRenderer';
 import { EffectsSystem, type EffectsSnapshot } from '../src/render/EffectsSystem';
+import { PresentationSystem } from '../src/presentation/PresentationSystem';
 
 afterEach(() => vi.restoreAllMocks());
 
 interface RecordedPolygon {
+  readonly points: readonly (readonly [number, number])[];
+  readonly style: unknown;
+  readonly alpha: number;
+  readonly depth: number;
+}
+
+interface RecordedStroke {
   readonly points: readonly (readonly [number, number])[];
   readonly style: unknown;
   readonly alpha: number;
@@ -20,7 +28,7 @@ function surface() {
   const text: { value: string; x: number; y: number; depth: number }[] = [];
   const rotations: number[] = [];
   const scales: [number, number][] = [];
-  const strokes: { style: unknown; alpha: number; depth: number }[] = [];
+  const strokes: RecordedStroke[] = [];
   let points: [number, number][] = [];
   let depth = 0;
   const context = {
@@ -36,7 +44,7 @@ function surface() {
     moveTo: (x: number, y: number) => { points.push([x, y]); },
     lineTo: (x: number, y: number) => { points.push([x, y]); },
     closePath: vi.fn(),
-    stroke: () => strokes.push({ style: context.strokeStyle, alpha: context.globalAlpha, depth }),
+    stroke: () => strokes.push({ points: [...points], style: context.strokeStyle, alpha: context.globalAlpha, depth }),
     arc: vi.fn(), setLineDash: vi.fn(),
     fill: () => { polygons.push({ points: [...points], style: context.fillStyle, alpha: context.globalAlpha, depth }); },
     fillStyle: '' as unknown, strokeStyle: '' as unknown, globalAlpha: 1, lineWidth: 1,
@@ -61,6 +69,7 @@ const baseSnapshot = (): GameSnapshot => {
 
 const snapshot = (overrides: Partial<GameSnapshot> = {}): GameSnapshot => ({ ...baseSnapshot(), ...overrides });
 const baseEffects = (): EffectsSnapshot => new EffectsSystem({ random: () => 0.5 }).snapshot();
+const presentation = () => new PresentationSystem().snapshot();
 const center = (polygon: RecordedPolygon): readonly [number, number] => polygon.points.reduce(
   ([x, y], [pointX, pointY]) => [x + pointX / polygon.points.length, y + pointY / polygon.points.length] as const,
   [0, 0] as const,
@@ -74,7 +83,7 @@ describe('progression rendering', () => {
       falling: [{ id: 1, color: 'sky', lane: 0, distance: 280, speed: 0, driftToLane: 1, driftProgress: 0.5 }],
     });
 
-    renderer.render(drifting, baseEffects(), 1);
+    renderer.render(drifting, baseEffects(), presentation(), 1);
 
     const [plateX, plateY] = center(plates(polygons).at(-1)!);
     expect(plateX).toBeGreaterThan(0);
@@ -86,7 +95,7 @@ describe('progression rendering', () => {
     renderer.render(snapshot({
       elapsedMs: 1,
       falling: [{ id: 1, color: 'sky', lane: 0, distance: 200, speed: 0, driftToLane: 1, driftProgress: 1 }],
-    }), baseEffects(), 1);
+    }), baseEffects(), presentation(), 1);
     const [endX, endY] = center(plates(polygons).at(-1)!);
     expect(endX).toBeCloseTo(Math.cos(-Math.PI / 6) * 212);
     expect(endY).toBeCloseTo(Math.sin(-Math.PI / 6) * 212);
@@ -97,7 +106,7 @@ describe('progression rendering', () => {
     const visible = snapshot({
       falling: [{ id: 2, color: 'amber', lane: 0, distance: 300, speed: 0, mirageLane: 1, mirageVisible: true }],
     });
-    renderer.render(visible, baseEffects(), 1);
+    renderer.render(visible, baseEffects(), presentation(), 1);
     expect(polygons.some((polygon) => {
       const [x] = center(polygon);
       return polygon.points.length >= 3 && x > 100 && polygon.alpha > 0.1 && polygon.alpha < 0.5;
@@ -108,7 +117,7 @@ describe('progression rendering', () => {
       ...visible,
       elapsedMs: 1,
       falling: [{ ...visible.falling[0]!, mirageVisible: false }],
-    }, baseEffects(), 1);
+    }, baseEffects(), presentation(), 1);
     expect(polygons.some((polygon) => {
       const [x] = center(polygon);
       return polygon.points.length >= 3 && x > 100 && polygon.alpha > 0.1 && polygon.alpha < 0.5;
@@ -122,7 +131,7 @@ describe('progression rendering', () => {
         id: 3, color: 'coral', lane: 0, distance: 300, speed: 0,
         shiftToColor: 'sky', shiftAtDistance: 260,
       }],
-    }), baseEffects(), 1);
+    }), baseEffects(), presentation(), 1);
 
     expect(polygons.some(({ style, points }) => style === VISUAL_COLORS.sky && points.length >= 3)).toBe(true);
     expect(plates(polygons)).toHaveLength(1);
@@ -132,10 +141,123 @@ describe('progression rendering', () => {
     const { renderer, polygons, text } = surface();
     renderer.render(snapshot({
       fallingBonuses: [{ id: 4, type: 'colorBreak', lane: 2, distance: 320, speed: 0 }],
-    }), baseEffects(), 1);
+    }), baseEffects(), presentation(), 1);
 
     expect(polygons.some(({ style }) => style === VISUAL_COLORS.ink)).toBe(true);
     expect(text).toContainEqual(expect.objectContaining({ value: '◆' }));
+  });
+
+  it('assembles a newly spawned block from a scaled faceted silhouette', () => {
+    const { renderer, scales, polygons } = surface();
+    const block = { id: 9, color: 'teal' as const, lane: 2, distance: 520, speed: 0 };
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'blockSpawned', block }]);
+
+    renderer.render(snapshot({ falling: [block] }), fx.snapshot(), presentation(), 0);
+
+    expect(scales.some(([x, y]) => Math.abs(x - 0.72) < 0.01 && Math.abs(y - 0.72) < 0.01)).toBe(true);
+    expect(polygons.filter(({ points }) => points.length === 3).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('draws pulse destruction as fragments with a central outlined impact', () => {
+    const { renderer, polygons, strokes } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([
+      { type: 'bonusActivated', bonus: 'pulse' },
+      {
+        type: 'bonusRemoved', bonus: 'pulse', cells: [{ side: 0, index: 0 }],
+        blocks: [{ id: 1, color: 'coral' }], scoreDelta: 80,
+      },
+    ]);
+    fx.update(100);
+
+    renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+
+    expect(strokes.filter(({ points }) => points.length === 6).length).toBeGreaterThanOrEqual(3);
+    expect(polygons.some(({ points }) => points.length >= 3 && points.length <= 5)).toBe(true);
+  });
+
+  it('draws a cool multi-ring wave for slow without creating fragments', () => {
+    const { renderer, strokes } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'bonusActivated', bonus: 'slow' }]);
+    fx.update(110);
+
+    renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+
+    expect(fx.snapshot().fragments).toEqual([]);
+    expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.sky).length)
+      .toBeGreaterThanOrEqual(2);
+  });
+
+  it('sweeps a narrow cleanse cut across the removed side', () => {
+    const { renderer, strokes } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([
+      { type: 'bonusActivated', bonus: 'cleanse' },
+      {
+        type: 'bonusRemoved', bonus: 'cleanse', cells: [{ side: 1, index: 2 }],
+        blocks: [{ id: 8, color: 'teal' }], scoreDelta: 80,
+      },
+    ]);
+    fx.update(110);
+
+    renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+
+    expect(strokes.some(({ points, style }) => {
+      if (points.length !== 2 || style !== VISUAL_COLORS.ink) return false;
+      const [[ax, ay], [bx, by]] = points;
+      return Math.hypot(bx! - ax!, by! - ay!) >= 24;
+    })).toBe(true);
+  });
+
+  it('flashes every color-break source plate together before release', () => {
+    const { renderer, polygons } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([
+      { type: 'bonusActivated', bonus: 'colorBreak' },
+      {
+        type: 'bonusRemoved', bonus: 'colorBreak',
+        cells: [{ side: 0, index: 0 }, { side: 3, index: 1 }],
+        blocks: [{ id: 3, color: 'coral' }, { id: 4, color: 'coral' }], scoreDelta: 160,
+      },
+    ]);
+    fx.update(30);
+
+    renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+
+    expect(polygons.filter(({ points, style, alpha }) => (
+      points.length === 4 && style === VISUAL_COLORS.coral && alpha > 0 && alpha < 1
+    )).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('moves a collected bonus glyph from the world toward its readable slot', () => {
+    const { renderer, text } = surface();
+    const timeline = new PresentationSystem();
+    timeline.consume([{
+      type: 'bonusCollected', bonus: 'pulse',
+      token: { id: 12, type: 'pulse', lane: 2, distance: 72, speed: 150 },
+    }]);
+    timeline.update(320);
+
+    renderer.render(snapshot({ bonus: { stored: 'pulse', slowRemainingMs: 0 } }), baseEffects(), timeline.snapshot(), 0);
+
+    expect(text).toContainEqual(expect.objectContaining({ value: '⌁' }));
+  });
+
+  it('keeps reduced motion free of assembly transforms and traveling fragments', () => {
+    const { renderer, scales, polygons } = surface();
+    const block = { id: 13, color: 'sky' as const, lane: 0, distance: 420, speed: 0 };
+    const fx = new EffectsSystem({ random: () => 0.5, reducedMotion: true });
+    fx.consume([
+      { type: 'blockSpawned', block },
+      { type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'sky', chain: 1 },
+    ]);
+
+    renderer.render(snapshot({ falling: [block] }), fx.snapshot(), presentation(), 0);
+
+    expect(scales.some(([x, y]) => Math.abs(x - 0.72) < 0.01 && Math.abs(y - 0.72) < 0.01)).toBe(false);
+    expect(polygons.filter(({ points }) => points.length === 3 || points.length === 5)).toHaveLength(0);
   });
 
   it('reverses guide motion without changing attached stack geometry and keeps surge compression within four percent', () => {
@@ -145,11 +267,11 @@ describe('progression rendering', () => {
       elapsedMs: 1_000,
       stacks: [[{ id: 5, color: 'teal' }], [], [], [], [], []],
     });
-    normalSurface.renderer.render(attached, baseEffects(), 1);
+    normalSurface.renderer.render(attached, baseEffects(), presentation(), 1);
     reverseSurface.renderer.render({
       ...attached,
       cycle: { ...attached.cycle, phase: 'surge', anomalies: [{ type: 'reverse', remainingMs: 1_000 }] },
-    }, baseEffects(), 1);
+    }, baseEffects(), presentation(), 1);
 
     expect(normalSurface.rotations.some((angle) => angle > 0)).toBe(true);
     expect(reverseSurface.rotations.some((angle) => angle < 0)).toBe(true);
@@ -167,7 +289,7 @@ describe('progression rendering', () => {
       screenFlash: { tone: 'coral', intensity: 0.75, remainingMs: 80 },
     };
 
-    renderer.render(snapshot(), effects, 1);
+    renderer.render(snapshot(), effects, presentation(), 1);
 
     expect(strokes.some(({ style, depth }) => style === VISUAL_COLORS.ink && depth > 0)).toBe(true);
     expect(text).toContainEqual(expect.objectContaining({ value: 'CHAIN ×2', depth: 1 }));
@@ -180,20 +302,20 @@ describe('progression rendering', () => {
       elapsedMs: 100,
       falling: [{ id: 6, color: 'coral', lane: 0, distance: 300, speed: 0 }],
     });
-    renderer.render(previous, baseEffects(), 1);
+    renderer.render(previous, baseEffects(), presentation(), 1);
     const previousY = center(plates(polygons).at(-1)!)[1];
 
     const current = { ...previous, elapsedMs: 116, falling: [{ ...previous.falling[0]!, distance: 200 }] };
     polygons.length = 0;
-    renderer.render(current, { ...baseEffects(), hitStopRemainingMs: 60 }, 1);
+    renderer.render(current, { ...baseEffects(), hitStopRemainingMs: 60 }, presentation(), 1);
     expect(center(plates(polygons).at(-1)!)[1]).toBeCloseTo(previousY);
 
     polygons.length = 0;
-    renderer.render({ ...current, elapsedMs: 176 }, baseEffects(), 1);
+    renderer.render({ ...current, elapsedMs: 176 }, baseEffects(), presentation(), 1);
     expect(center(plates(polygons).at(-1)!)[1]).toBeCloseTo(-212);
 
     polygons.length = 0;
-    renderer.render({ ...current, mode: 'upgrade', elapsedMs: 192 }, { ...baseEffects(), hitStopRemainingMs: 60 }, 1);
+    renderer.render({ ...current, mode: 'upgrade', elapsedMs: 192 }, { ...baseEffects(), hitStopRemainingMs: 60 }, presentation(), 1);
     expect(center(plates(polygons).at(-1)!)[1]).toBeCloseTo(-212);
   });
 });

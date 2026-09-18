@@ -11,6 +11,7 @@ import {
 import type { FallingBonus } from '../game/progressionTypes';
 import type { BlockColor, FallingBlock, GameSnapshot } from '../game/types';
 import { getBonusPresentation } from '../presentation/bonusPresentation';
+import type { PresentationSnapshot } from '../presentation/PresentationSystem';
 import type { EffectsSnapshot } from './EffectsSystem';
 import { blockQuad, hexPoints, type Point } from './geometry';
 
@@ -73,7 +74,12 @@ export class CanvasRenderer {
     };
   }
 
-  public render(snapshot: GameSnapshot, effects: EffectsSnapshot, alpha: number): void {
+  public render(
+    snapshot: GameSnapshot,
+    effects: EffectsSnapshot,
+    presentation: PresentationSnapshot,
+    alpha: number,
+  ): void {
     const fraction = Number.isFinite(alpha) ? Math.max(0, Math.min(1, alpha)) : 0;
     const previous = this.lastSnapshot;
     const reset = previous !== null && snapshot.elapsedMs < previous.elapsedMs;
@@ -104,9 +110,10 @@ export class CanvasRenderer {
     // The menu has visual motion even while engine elapsed time is zero.
     this.guides(presented, presented.mode === 'menu' ? performance.now() : time);
 
+    const slowActive = presented.bonus.slowRemainingMs > 0 || effects.bonusImpact?.bonus === 'slow';
     for (const block of presented.falling) {
       const distance = this.fallingDistance(block, presented.mode, presentedFraction);
-      this.trail(block, distance);
+      this.trail(block, distance, slowActive);
     }
 
     if (presented.mode === 'menu') {
@@ -134,7 +141,9 @@ export class CanvasRenderer {
       for (const block of presented.falling) {
         const distance = this.fallingDistance(block, presented.mode, presentedFraction);
         const angle = this.fallingAngle(block);
-        this.plate(angle, distance, block.color);
+        const assembly = effects.assemblies.find(({ blockId }) => blockId === block.id);
+        if (assembly) this.assemblingPlate(angle, distance, block.color, assembly.ageMs / assembly.lifetimeMs);
+        else this.plate(angle, distance, block.color);
         if (
           block.shiftToColor !== undefined
           && block.shiftAtDistance !== undefined
@@ -147,6 +156,7 @@ export class CanvasRenderer {
       for (const bonus of presented.fallingBonuses) this.bonusToken(bonus, presented.mode, presentedFraction);
     }
     this.worldEffects(effects);
+    this.bonusTransfer(presentation);
     ctx.restore();
     this.screenEffects(effects);
     this.combo(effects);
@@ -277,18 +287,69 @@ export class CanvasRenderer {
     ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 2 / this.scale; ctx.stroke();
   }
 
+  private assemblingPlate(angle: number, distance: number, color: BlockColor, rawProgress: number): void {
+    const ctx = this.ctx;
+    const progress = ease(rawProgress);
+    const scale = 0.72 + progress * 0.28;
+    const points = blockQuad(ORIGIN, angle, distance + 2, BLOCK_DEPTH - 4);
+    const center = points.reduce(
+      (sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }),
+      { x: 0, y: 0 },
+    );
+    const splitNear = this.midpoint(points[0]!, points[1]!);
+    const splitFar = this.midpoint(points[3]!, points[2]!);
+    const spread = (1 - progress) * 10;
+    const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
+
+    ctx.save();
+    ctx.translate(center.x, center.y);
+    ctx.scale(scale, scale);
+    ctx.translate(-center.x, -center.y);
+    ctx.globalAlpha = 0.18 + progress * 0.82;
+    this.path([
+      { x: points[0]!.x - tangent.x * spread, y: points[0]!.y - tangent.y * spread },
+      { x: points[3]!.x - tangent.x * spread, y: points[3]!.y - tangent.y * spread },
+      { x: splitFar.x, y: splitFar.y },
+      { x: splitNear.x, y: splitNear.y },
+    ]);
+    ctx.fillStyle = this.shade(color); ctx.fill();
+    this.path([
+      { x: points[1]!.x + tangent.x * spread, y: points[1]!.y + tangent.y * spread },
+      { x: points[2]!.x + tangent.x * spread, y: points[2]!.y + tangent.y * spread },
+      splitFar,
+    ]);
+    ctx.fillStyle = VISUAL_COLORS[color]; ctx.fill();
+    this.path([points[1]!, splitNear, splitFar]);
+    ctx.fillStyle = VISUAL_COLORS[color]; ctx.fill();
+    ctx.restore();
+
+    const guideFrom = START_DISTANCE + 26;
+    ctx.save();
+    ctx.globalAlpha = (1 - progress) * 0.38;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * guideFrom, Math.sin(angle) * guideFrom);
+    ctx.lineTo(center.x, center.y);
+    ctx.strokeStyle = VISUAL_COLORS[color];
+    ctx.lineWidth = 1 / this.scale;
+    ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
   private shade(color: BlockColor): string {
     return { coral: '#B9574D', amber: '#B88A38', teal: '#478277', sky: '#56829C' }[color];
   }
 
-  private trail(block: FallingBlock, distance: number): void {
+  private trail(block: FallingBlock, distance: number, stretched = false): void {
     const ctx = this.ctx;
     ctx.save();
-    for (let step = 3; step >= 1; step -= 1) {
-      ctx.globalAlpha = 0.025 * (4 - step);
+    const trailSteps = stretched ? 5 : 3;
+    const spacing = stretched ? 19 : 14;
+    for (let step = trailSteps; step >= 1; step -= 1) {
+      ctx.globalAlpha = 0.018 * (trailSteps + 1 - step);
       const driftProgress = Math.max(0, (block.driftProgress ?? 0) - step * 0.08);
       const angle = this.fallingAngle({ ...block, driftProgress });
-      this.path(blockQuad(ORIGIN, angle, distance + step * 14, 10));
+      this.path(blockQuad(ORIGIN, angle, distance + step * spacing, 10));
       ctx.fillStyle = VISUAL_COLORS[block.color]; ctx.fill();
     }
     ctx.restore();
@@ -364,8 +425,152 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
+  private bonusTransfer(presentation: PresentationSnapshot): void {
+    const transfer = presentation.transfer;
+    if (transfer === null || transfer.ageMs < 240 || transfer.ageMs >= transfer.lifetimeMs) return;
+    const ctx = this.ctx;
+    const progress = ease((transfer.ageMs - 240) / (transfer.lifetimeMs - 240));
+    const angle = this.laneAngle(transfer.lane);
+    const start = {
+      x: Math.cos(angle) * transfer.distance,
+      y: Math.sin(angle) * transfer.distance,
+    };
+    const end = {
+      x: (this.width - 144 - this.width / 2) / this.scale,
+      y: (this.height - 66 - this.height / 2) / this.scale,
+    };
+    const middle = {
+      x: (start.x + end.x) / 2 - 54,
+      y: Math.min(start.y, end.y) - 92,
+    };
+    const inverse = 1 - progress;
+    const point = {
+      x: inverse * inverse * start.x + 2 * inverse * progress * middle.x + progress * progress * end.x,
+      y: inverse * inverse * start.y + 2 * inverse * progress * middle.y + progress * progress * end.y,
+    };
+    const fade = transfer.ageMs > transfer.lifetimeMs - 120
+      ? (transfer.lifetimeMs - transfer.ageMs) / 120 : 1;
+    const bonus = getBonusPresentation(transfer.bonus);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, fade));
+    this.path(hexPoints(point, 14 - progress * 2, angle + progress * TURN));
+    ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill();
+    ctx.fillStyle = VISUAL_COLORS.background;
+    ctx.font = '700 11px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(bonus.glyph, point.x, point.y + 0.5);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  private bonusImpact(effects: EffectsSnapshot): void {
+    const impact = effects.bonusImpact;
+    if (impact === null) return;
+    const ctx = this.ctx;
+    const rawProgress = this.finite(impact.ageMs) / Math.max(1, this.finite(impact.lifetimeMs, 1));
+    const progress = ease(rawProgress);
+    const life = Math.max(0, 1 - rawProgress);
+
+    // Activation remains legible even when a removal bonus finds no targets,
+    // without drawing fragments or implying that a plate was destroyed.
+    if (impact.removedCount === 0 && impact.bonus !== 'slow') {
+      ctx.save();
+      ctx.globalAlpha = life * 0.32;
+      ctx.strokeStyle = VISUAL_COLORS.ink;
+      ctx.lineWidth = (1 + life * 1.5) / this.scale;
+      this.path(hexPoints(ORIGIN, HEX_APOTHEM + 12 + progress * 30, -TURN));
+      ctx.stroke();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    if (impact.bonus === 'slow') {
+      for (let ring = 0; ring < 3; ring += 1) {
+        const phase = Math.max(0, Math.min(1, progress * 1.2 + ring * 0.09));
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, (1 - phase) * (0.34 - ring * 0.055));
+        ctx.strokeStyle = VISUAL_COLORS.sky;
+        ctx.lineWidth = (2.5 - ring * 0.45) / this.scale;
+        this.path(hexPoints(ORIGIN, HEX_APOTHEM + 22 + phase * 178 + ring * 14, -TURN));
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    if (impact.bonus === 'pulse') {
+      for (let ring = 0; ring < 3; ring += 1) {
+        const phase = Math.max(0, Math.min(1, progress * 1.28 + ring * 0.11));
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, (1 - phase) * (0.68 - ring * 0.1));
+        ctx.strokeStyle = VISUAL_COLORS.ink;
+        ctx.lineWidth = (3.6 - ring * 0.7) / this.scale;
+        this.path(hexPoints(ORIGIN, HEX_APOTHEM + 10 + phase * 210 + ring * 18, -TURN));
+        ctx.stroke();
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    if (impact.bonus === 'cleanse') {
+      const fragments = effects.fragments;
+      const direction = fragments.length === 0
+        ? -Math.PI / 2
+        : Math.atan2(
+          fragments.reduce((sum, fragment) => sum + fragment.y, 0),
+          fragments.reduce((sum, fragment) => sum + fragment.x, 0),
+        );
+      const outerDistance = fragments.reduce(
+        (furthest, fragment) => Math.max(furthest, Math.hypot(fragment.x, fragment.y)),
+        HEX_APOTHEM + BLOCK_DEPTH * 3,
+      );
+      const distance = outerDistance - progress * Math.max(0, outerDistance - HEX_APOTHEM + 6);
+      const center = { x: Math.cos(direction) * distance, y: Math.sin(direction) * distance };
+      const tangent = { x: -Math.sin(direction), y: Math.cos(direction) };
+      const halfWidth = 22 + life * 13;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, life * 1.45);
+      ctx.beginPath();
+      ctx.moveTo(center.x - tangent.x * halfWidth, center.y - tangent.y * halfWidth);
+      ctx.lineTo(center.x + tangent.x * halfWidth, center.y + tangent.y * halfWidth);
+      ctx.strokeStyle = VISUAL_COLORS.ink;
+      ctx.lineWidth = (2 + life * 2.5) / this.scale;
+      ctx.stroke();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    // COLOR BREAK: all source plates receive the same brief tone flash before
+    // their individually delayed fragment release begins.
+    if (impact.ageMs <= 70) {
+      const sources = new Map<string, { x: number; y: number; color: BlockColor }>();
+      for (const fragment of effects.fragments) {
+        const key = `${fragment.x.toFixed(3)},${fragment.y.toFixed(3)},${fragment.color}`;
+        if (!sources.has(key)) sources.set(key, { x: fragment.x, y: fragment.y, color: fragment.color });
+      }
+      const flash = 0.24 + Math.sin(Math.min(1, impact.ageMs / 70) * Math.PI) * 0.46;
+      for (const source of sources.values()) {
+        const angle = Math.atan2(source.y, source.x);
+        const distance = Math.hypot(source.x, source.y);
+        ctx.save();
+        ctx.globalAlpha = flash;
+        this.path(blockQuad(ORIGIN, angle, distance + 2, BLOCK_DEPTH - 4));
+        ctx.fillStyle = VISUAL_COLORS[source.color];
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
   private worldEffects(effects: EffectsSnapshot): void {
     const ctx = this.ctx;
+    this.bonusImpact(effects);
     for (const shockwave of effects.shockwaves) {
       const progress = ease(this.finite(shockwave.ageMs) / Math.max(1, this.finite(shockwave.lifetimeMs, 1)));
       const life = Math.max(0, 1 - progress);
@@ -388,31 +593,56 @@ export class CanvasRenderer {
       ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill(); ctx.restore();
     }
     const contracting = new Set<string>();
-    for (const particle of effects.particles) {
-      if (particle.ageMs < particle.burstDelayMs) {
-        // Six particles share each cleared plate's origin during the anticipation.
+    for (const fragment of effects.fragments) {
+      if (fragment.ageMs < fragment.anticipationMs) {
+        // Fragments share each cleared plate's origin during anticipation.
         // Draw its contracting silhouette once, without retaining game-state ghosts.
-        const key = `${particle.x.toFixed(3)},${particle.y.toFixed(3)},${particle.color}`;
+        const key = `${fragment.x.toFixed(3)},${fragment.y.toFixed(3)},${fragment.color},${fragment.anticipationMs}`;
         if (!contracting.has(key)) {
           contracting.add(key);
-          const progress = particle.ageMs / particle.burstDelayMs;
-          const scale = 1 - progress * 0.6;
+          const progress = fragment.ageMs / fragment.anticipationMs;
+          const scale = 1 - ease(progress) * 0.28;
+          const angle = Math.atan2(fragment.y, fragment.x);
+          const distance = Math.hypot(fragment.x, fragment.y);
           ctx.save();
-          ctx.globalAlpha = 1 - progress * 0.7;
-          ctx.translate(particle.x, particle.y);
+          ctx.globalAlpha = 1 - progress * 0.42;
+          ctx.translate(fragment.x, fragment.y);
           ctx.scale(scale, scale);
-          ctx.translate(-particle.x, -particle.y);
-          this.plate(Math.atan2(particle.y, particle.x), Math.hypot(particle.x, particle.y), particle.color);
+          ctx.translate(-fragment.x, -fragment.y);
+          this.plate(angle, distance, fragment.color);
+          ctx.beginPath();
+          const seamAngle = angle + Math.PI * 0.62;
+          ctx.moveTo(fragment.x - Math.cos(seamAngle) * 9, fragment.y - Math.sin(seamAngle) * 9);
+          ctx.lineTo(fragment.x + Math.cos(seamAngle) * 9, fragment.y + Math.sin(seamAngle) * 9);
+          ctx.strokeStyle = 'rgba(23,25,24,0.72)';
+          ctx.lineWidth = 1.5 / this.scale;
+          ctx.stroke();
           ctx.restore();
         }
         continue;
       }
-      const life = Math.max(0, 1 - particle.ageMs / particle.lifetimeMs);
-      ctx.save(); ctx.translate(particle.x, particle.y); ctx.rotate(particle.rotation);
+      const releasedAge = fragment.ageMs - fragment.anticipationMs;
+      const releasedLife = Math.max(1, fragment.lifetimeMs - fragment.anticipationMs);
+      const life = Math.max(0, 1 - releasedAge / releasedLife);
+      const sides = 3 + (Math.round(fragment.size) % 3);
+      const points = Array.from({ length: sides }, (_, index) => {
+        const angle = -Math.PI / 2 + index * Math.PI * 2 / sides;
+        const radius = fragment.size * (index % 2 === 0 ? 1 : 0.72);
+        return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+      });
+      ctx.save(); ctx.translate(fragment.x, fragment.y); ctx.rotate(fragment.rotation);
       ctx.globalAlpha = life;
-      ctx.fillStyle = VISUAL_COLORS[particle.color];
-      const size = 3 + life * 3;
-      ctx.fillRect(-size / 2, -size / 2, size, size * 0.7);
+      this.path(points);
+      ctx.fillStyle = VISUAL_COLORS[fragment.color]; ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(points[0]!.x, points[0]!.y);
+      ctx.lineTo(points[1]!.x, points[1]!.y);
+      ctx.strokeStyle = 'rgba(255,250,236,0.38)';
+      ctx.lineWidth = 1 / this.scale; ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(points.at(-1)!.x, points.at(-1)!.y);
+      ctx.lineTo(points[0]!.x, points[0]!.y);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.stroke();
       ctx.restore();
     }
     ctx.globalAlpha = 1;

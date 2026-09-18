@@ -4,6 +4,7 @@ import { GameEngine } from '../src/game/GameEngine';
 import { EffectsSystem } from '../src/render/EffectsSystem';
 import type { GameSnapshot } from '../src/game/types';
 import { InputController } from '../src/runtime/InputController';
+import { PresentationSystem } from '../src/presentation/PresentationSystem';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -34,6 +35,7 @@ function surface() {
 }
 
 const effects = () => new EffectsSystem().snapshot();
+const presentation = () => new PresentationSystem().snapshot();
 const playing = (): GameSnapshot => {
   const game = new GameEngine({ spawning: false });
   game.start();
@@ -52,7 +54,7 @@ describe('CanvasRenderer', () => {
         const plate = polygons.find(({ points, style }) => points.length === 4 && typeof style === 'object')!;
         return plate.points.reduce((sum, [x, y]) => [sum[0]! + x! / 4, sum[1]! + y! / 4], [0, 0]);
       };
-      const draw = () => { polygons.length = 0; renderer.render(game.getSnapshot(), effects(), 0); return center(); };
+      const draw = () => { polygons.length = 0; renderer.render(game.getSnapshot(), effects(), presentation(), 0); return center(); };
       renderer.resize(800, 600, 1);
       expect(draw()[0]).toBeCloseTo(0);
       input.start();
@@ -78,10 +80,10 @@ describe('CanvasRenderer', () => {
       const hub = polygons.find(({ points, style }) => points.length === 6 && typeof style === 'object')!;
       return Math.hypot(...hub.points[0]!) * hub.scale;
     };
-    renderer.render(new GameEngine().getSnapshot(), effects(), 0);
+    renderer.render(new GameEngine().getSnapshot(), effects(), presentation(), 0);
     const menuRadius = hubRadius();
     polygons.length = 0;
-    renderer.render(playing(), effects(), 0);
+    renderer.render(playing(), effects(), presentation(), 0);
     expect(menuRadius).toBeGreaterThan(0);
     expect(menuRadius).toBeLessThan(hubRadius());
   });
@@ -93,7 +95,7 @@ describe('CanvasRenderer', () => {
     const snapshot = fx.snapshot();
     const before = JSON.stringify(snapshot);
     renderer.resize(800, 600, 1);
-    renderer.render(playing(), snapshot, 0);
+    renderer.render(playing(), snapshot, presentation(), 0);
     const plates = polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object');
     expect(plates).toHaveLength(2);
     expect(plates.flatMap(plate => plate.points.flat()).every(Number.isFinite)).toBe(true);
@@ -101,7 +103,7 @@ describe('CanvasRenderer', () => {
     expect(JSON.stringify(snapshot)).toBe(before);
     polygons.length = 0;
     fx.update(40);
-    renderer.render(playing(), fx.snapshot(), 0);
+    renderer.render(playing(), fx.snapshot(), presentation(), 0);
     expect(polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object')).toHaveLength(0);
   });
   it('scales the backing canvas while keeping CSS world coordinates independent of DPR', () => {
@@ -123,7 +125,7 @@ describe('CanvasRenderer', () => {
     const snapshot = { ...playing(), stacks: [[{ id: 1, color: 'coral' as const }], [], [], [], [], []],
       falling: [{ id: 2, color: 'sky' as const, lane: 0, distance: 180, speed: 120 }] };
     const before = JSON.stringify(snapshot);
-    renderer.render(snapshot, effects(), 0.5);
+    renderer.render(snapshot, effects(), presentation(), 0.5);
     const plates = polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object');
     expect(plates).toHaveLength(2);
     expect(plates[0]!.points.map((p) => p[1])).toEqual([-74, -74, -94, -94]);
@@ -135,13 +137,13 @@ describe('CanvasRenderer', () => {
     const { renderer, polygons } = surface();
     const snapshot = { ...playing(), orientation: 5, elapsedMs: 100 };
     const body = () => polygons.filter((p) => p.points.length === 6 && typeof p.style === 'object').at(-1)!.points[0]!;
-    renderer.render(snapshot, effects(), 0);
-    renderer.render({ ...snapshot, orientation: 0, elapsedMs: 116 }, effects(), 0);
-    renderer.render({ ...snapshot, orientation: 0, elapsedMs: 176 }, effects(), 0);
+    renderer.render(snapshot, effects(), presentation(), 0);
+    renderer.render({ ...snapshot, orientation: 0, elapsedMs: 116 }, effects(), presentation(), 0);
+    renderer.render({ ...snapshot, orientation: 0, elapsedMs: 176 }, effects(), presentation(), 0);
     // Halfway through one 60-degree turn: the rightmost vertex points up-right.
     expect(body()[0]).toBeCloseTo(72);
     expect(body()[1]).toBeCloseTo(-41.569219);
-    renderer.render({ ...snapshot, orientation: 0, elapsedMs: 236 }, effects(), 0);
+    renderer.render({ ...snapshot, orientation: 0, elapsedMs: 236 }, effects(), presentation(), 0);
     expect(body()[0]).toBeCloseTo(41.569219);
     expect(body()[1]).toBeCloseTo(-72);
   });
@@ -156,7 +158,7 @@ describe('CanvasRenderer', () => {
     const snapshot = fx.snapshot();
     const before = JSON.stringify(snapshot);
     renderer.resize(800, 600, 2);
-    renderer.render(new GameEngine().getSnapshot(), snapshot, 0.5);
+    renderer.render(new GameEngine().getSnapshot(), snapshot, presentation(), 0.5);
     expect(polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object').length).toBeGreaterThan(4);
     expect(polygons.flatMap((p) => p.points.flat()).every(Number.isFinite)).toBe(true);
     expect(context.fillText).toHaveBeenCalledWith('×2', expect.any(Number), expect.any(Number));
