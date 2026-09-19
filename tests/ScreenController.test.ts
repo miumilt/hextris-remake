@@ -125,6 +125,49 @@ describe('ScreenController', () => {
     expect(root.querySelector('[aria-label="Slow remaining"]')?.getAttribute('aria-valuenow')).toBe('4200');
   });
 
+  it('keeps the active slow timer visible after the inventory slot is consumed', () => {
+    const screen = new ScreenController(root);
+
+    screen.render(snapshot({
+      mode: 'playing',
+      bonus: { stored: null, slowRemainingMs: 4200 },
+    }), emptyPresentation());
+
+    expect(root.querySelector('.bonus-slot')).toBeNull();
+    expect(root.querySelector('.slow-status')?.textContent).toContain('SLOW ACTIVE');
+    expect(root.querySelector('[aria-label="Slow remaining"]')?.getAttribute('aria-valuenow')).toBe('4200');
+
+    screen.render(snapshot({
+      mode: 'playing',
+      bonus: { stored: 'pulse', slowRemainingMs: 2100 },
+    }), emptyPresentation());
+
+    expect(root.querySelector('[aria-label="Stored bonus: PULSE"]')).not.toBeNull();
+    expect(root.querySelector('.slow-status')?.classList.contains('with-slot')).toBe(true);
+    expect(root.querySelector('[aria-label="Slow remaining"]')?.getAttribute('aria-valuenow')).toBe('2100');
+  });
+
+  it('shows the displaced old glyph while its replacement enters the slot', () => {
+    const screen = new ScreenController(root);
+    const replacement: PresentationSnapshot = Object.freeze({
+      notice: Object.freeze({
+        title: 'PULSE REPLACED SLOW', body: 'KNOCKS BLOCKS FROM OUTER SIDES',
+        tone: 'amber', priority: 3, ageMs: 0, lifetimeMs: 950, assertive: false,
+      }),
+      queuedNotices: Object.freeze([]),
+      transfer: null,
+      slotAttentionRemainingMs: 2500,
+      replacedBonus: 'slow',
+    });
+
+    screen.render(snapshot({
+      mode: 'playing', bonus: { stored: 'pulse', slowRemainingMs: 0 },
+    }), replacement);
+
+    expect(root.querySelector('.bonus-glyph.current')?.textContent).toBe('⌁');
+    expect(root.querySelector('[data-replaced-bonus="SLOW"]')?.textContent).toBe('Ⅱ');
+  });
+
   it('preserves transient HUD nodes and focus across repeated renders and removal', () => {
     const screen = new ScreenController(root);
     const active: PresentationSnapshot = Object.freeze({

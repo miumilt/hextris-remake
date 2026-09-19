@@ -156,7 +156,7 @@ export class CanvasRenderer {
       for (const bonus of presented.fallingBonuses) this.bonusToken(bonus, presented.mode, presentedFraction);
     }
     this.worldEffects(effects);
-    this.bonusTransfer(presentation);
+    this.bonusTransfer(presentation, effects.reducedMotion);
     ctx.restore();
     this.screenEffects(effects);
     this.combo(effects);
@@ -425,7 +425,7 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  private bonusTransfer(presentation: PresentationSnapshot): void {
+  private bonusTransfer(presentation: PresentationSnapshot, reducedMotion: boolean): void {
     const transfer = presentation.transfer;
     if (transfer === null || transfer.ageMs < 240 || transfer.ageMs >= transfer.lifetimeMs) return;
     const ctx = this.ctx;
@@ -443,17 +443,19 @@ export class CanvasRenderer {
       x: (start.x + end.x) / 2 - 54,
       y: Math.min(start.y, end.y) - 92,
     };
-    const inverse = 1 - progress;
+    const motionProgress = reducedMotion ? 1 : progress;
+    const inverse = 1 - motionProgress;
     const point = {
-      x: inverse * inverse * start.x + 2 * inverse * progress * middle.x + progress * progress * end.x,
-      y: inverse * inverse * start.y + 2 * inverse * progress * middle.y + progress * progress * end.y,
+      x: inverse * inverse * start.x + 2 * inverse * motionProgress * middle.x + motionProgress * motionProgress * end.x,
+      y: inverse * inverse * start.y + 2 * inverse * motionProgress * middle.y + motionProgress * motionProgress * end.y,
     };
-    const fade = transfer.ageMs > transfer.lifetimeMs - 120
+    const fadeOut = transfer.ageMs > transfer.lifetimeMs - 120
       ? (transfer.lifetimeMs - transfer.ageMs) / 120 : 1;
+    const fadeIn = reducedMotion ? Math.min(1, (transfer.ageMs - 240) / 80) : 1;
     const bonus = getBonusPresentation(transfer.bonus);
     ctx.save();
-    ctx.globalAlpha = Math.max(0, Math.min(1, fade));
-    this.path(hexPoints(point, 14 - progress * 2, angle + progress * TURN));
+    ctx.globalAlpha = Math.max(0, Math.min(1, fadeIn * fadeOut));
+    this.path(hexPoints(point, 14 - motionProgress * 2, angle + motionProgress * TURN));
     ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill();
     ctx.fillStyle = VISUAL_COLORS.background;
     ctx.font = '700 11px Arial, sans-serif';

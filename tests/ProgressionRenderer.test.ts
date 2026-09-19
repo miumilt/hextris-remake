@@ -246,6 +246,31 @@ describe('progression rendering', () => {
     expect(text).toContainEqual(expect.objectContaining({ value: '⌁' }));
   });
 
+  it('cross-fades a collected glyph at the slot instead of traveling when motion is reduced', () => {
+    const normal = surface();
+    const reduced = surface();
+    const timeline = new PresentationSystem();
+    timeline.consume([{
+      type: 'bonusCollected', bonus: 'pulse',
+      token: { id: 12, type: 'pulse', lane: 2, distance: 72, speed: 150 },
+    }]);
+    timeline.update(320);
+    const game = snapshot({ bonus: { stored: 'pulse', slowRemainingMs: 0 } });
+
+    normal.renderer.render(game, baseEffects(), timeline.snapshot(), 0);
+    reduced.renderer.render(
+      game,
+      new EffectsSystem({ random: () => 0.5, reducedMotion: true }).snapshot(),
+      timeline.snapshot(),
+      0,
+    );
+
+    const normalGlyph = normal.text.find(({ value }) => value === '⌁')!;
+    const reducedGlyph = reduced.text.find(({ value }) => value === '⌁')!;
+    expect(reducedGlyph.x - normalGlyph.x).toBeGreaterThan(200);
+    expect(reducedGlyph.y - normalGlyph.y).toBeGreaterThan(200);
+  });
+
   it('keeps reduced motion free of assembly transforms and traveling fragments', () => {
     const { renderer, scales, polygons, strokes } = surface();
     const block = { id: 13, color: 'sky' as const, lane: 0, distance: 420, speed: 0 };

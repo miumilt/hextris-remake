@@ -127,13 +127,23 @@ export class ScreenController {
         const bonus = getBonusPresentation(snapshot.bonus.stored);
         const attention = presentation.slotAttentionRemainingMs > 0 ? ' attention' : '';
         const replaced = presentation.replacedBonus === null ? '' : ' replaced';
-        const slowProgress = Math.max(0, Math.min(1, snapshot.bonus.slowRemainingMs / 6000));
-        const slowRule = snapshot.bonus.stored === 'slow'
-          ? `<div class="slow-rule" role="progressbar" aria-label="Slow remaining" aria-valuemin="0" aria-valuemax="6000" aria-valuenow="${snapshot.bonus.slowRemainingMs}" style="--slow-progress:${Math.round(slowProgress * 100)}%"><span></span></div>`
-          : '';
+        const previous = presentation.replacedBonus === null
+          ? null
+          : getBonusPresentation(presentation.replacedBonus);
+        const previousGlyph = previous === null
+          ? ''
+          : `<span class="bonus-glyph previous" data-tone="${previous.tone}" data-replaced-bonus="${previous.label}" aria-hidden="true">${previous.glyph}</span>`;
         bonusMarkup = `<div class="bonus-slot${attention}${replaced}" data-tone="${bonus.tone}" aria-label="Stored bonus: ${bonus.label}">
-          <span class="bonus-glyph" aria-hidden="true">${bonus.glyph}</span>
-          <span class="bonus-copy"><strong>${bonus.label}</strong><small><kbd>SPACE</kbd><span aria-hidden="true"> — </span>ACTIVATE</small>${slowRule}</span>
+          ${previousGlyph}<span class="bonus-glyph current" aria-hidden="true">${bonus.glyph}</span>
+          <span class="bonus-copy"><strong>${bonus.label}</strong><small><kbd>SPACE</kbd><span aria-hidden="true"> — </span>ACTIVATE</small></span>
+        </div>`;
+      }
+      if (snapshot.bonus.slowRemainingMs > 0) {
+        const slowProgress = Math.max(0, Math.min(1, snapshot.bonus.slowRemainingMs / 6000));
+        const remainingSeconds = (snapshot.bonus.slowRemainingMs / 1000).toFixed(1).replace('.0', '');
+        bonusMarkup += `<div class="slow-status${snapshot.bonus.stored === null ? '' : ' with-slot'}" aria-label="Slow active">
+          <strong>SLOW ACTIVE</strong><span>${remainingSeconds}S</span>
+          <div class="slow-rule" role="progressbar" aria-label="Slow remaining" aria-valuemin="0" aria-valuemax="6000" aria-valuenow="${snapshot.bonus.slowRemainingMs}" style="--slow-progress:${Math.round(slowProgress * 100)}%"><span></span></div>
         </div>`;
       }
       if (bonusHost.innerHTML !== bonusMarkup) bonusHost.innerHTML = bonusMarkup;

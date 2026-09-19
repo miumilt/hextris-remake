@@ -36,6 +36,26 @@ describe('progression effects', () => {
     ]);
   });
 
+  it('marks bonus collection with a seventy-millisecond visual hold and one origin ring', () => {
+    const effects = new EffectsSystem({ random: () => 0.5 });
+
+    effects.consume([{
+      type: 'bonusCollected',
+      bonus: 'pulse',
+      token: { id: 7, type: 'pulse', lane: 2, distance: 72, speed: 150 },
+    }], { center: { x: 10, y: 20 } });
+
+    const snapshot = effects.snapshot();
+    expect(snapshot.hitStopRemainingMs).toBe(70);
+    expect(snapshot.shake).toEqual({ magnitude: 0, remainingMs: 0 });
+    expect(snapshot.shockwaves).toHaveLength(1);
+    expect(snapshot.shockwaves[0]).toMatchObject({
+      color: 'ivory', ageMs: 0, lifetimeMs: 260, intensity: 0.6,
+    });
+    expect(snapshot.shockwaves[0]?.x).toBeCloseTo(10 + Math.cos(Math.PI / 6) * 72);
+    expect(snapshot.shockwaves[0]?.y).toBeCloseTo(56);
+  });
+
   it('gives a bonus removal a full-field wave and an eighty-millisecond visual-only hit stop', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
@@ -78,6 +98,13 @@ describe('progression effects', () => {
     }]);
     expect(colorBreak.snapshot().fragments[0]?.anticipationMs).toBe(70);
     expect(colorBreak.snapshot().fragments[8]?.anticipationMs).toBe(94);
+
+    const pulse = new EffectsSystem({ random: () => 0.5 });
+    pulse.consume([{
+      type: 'bonusRemoved', bonus: 'pulse', cells, blocks, scoreDelta: 80,
+    }]);
+    expect(pulse.snapshot().fragments[0]?.anticipationMs).toBe(70);
+    expect(pulse.snapshot().fragments[8]?.anticipationMs).toBe(90);
   });
 
   it('announces anomaly starts transiently without retaining a cue when they end', () => {

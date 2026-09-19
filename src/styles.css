@@ -48,16 +48,26 @@ h1 { font-family: Impact, 'Arial Narrow', 'Franklin Gothic Heavy', sans-serif; f
 .bonus-slot[data-tone='teal'] { --bonus-accent: #69aaa1; }
 .bonus-slot[data-tone='coral'] { --bonus-accent: #d98677; }
 .bonus-slot::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; transform: scaleX(.28); transform-origin: left; background: var(--bonus-accent); }
-.bonus-slot.attention { animation: bonus-attention 460ms cubic-bezier(.2, .8, .2, 1) both; }
-.bonus-slot.attention::after { animation: bonus-rule 620ms cubic-bezier(.2, .8, .2, 1) both; }
-.bonus-slot.replaced .bonus-glyph { animation: bonus-replace 360ms ease-out both; }
+.bonus-slot.attention { animation: bonus-attention 2500ms cubic-bezier(.2, .8, .2, 1) both; }
+.bonus-slot.attention::after { animation: bonus-rule 2500ms cubic-bezier(.2, .8, .2, 1) both; }
+.bonus-slot.replaced .bonus-glyph.current { animation: bonus-replace 360ms ease-out both; }
 .bonus-glyph { display: grid; width: 44px; height: 44px; place-items: center; clip-path: polygon(50% 0, 100% 23%, 88% 85%, 50% 100%, 12% 85%, 0 23%); background: var(--bonus-accent); color: #171918; font: 700 22px/1 var(--mono); }
+.bonus-glyph.previous { position: absolute; z-index: 2; left: 10px; top: 9px; background: #d0ad4e; pointer-events: none; animation: bonus-displace 620ms ease-out both; }
+.bonus-glyph.previous[data-tone='sky'] { background: #9bbfc5; }
+.bonus-glyph.previous[data-tone='teal'] { background: #69aaa1; }
+.bonus-glyph.previous[data-tone='coral'] { background: #d98677; }
 .bonus-copy { display: grid; gap: 5px; min-width: 0; }
 .bonus-copy strong { font: 800 15px/1 'Arial Narrow', 'Franklin Gothic Medium', Impact, sans-serif; letter-spacing: .06em; white-space: nowrap; }
 .bonus-copy small { font: 9px/1.25 var(--mono); letter-spacing: .12em; color: #a3a69e; white-space: nowrap; }
 .bonus-copy kbd { padding: 1px 4px; border: 1px solid #676b63; color: #eee9df; font: inherit; }
+.slow-status { position: absolute; right: 34px; bottom: 34px; display: grid; grid-template-columns: auto 1fr auto; width: 220px; align-items: center; gap: 7px; padding-top: 7px; border-top: 1px solid #9bbfc5; color: #dbe7e5; }
+.slow-status.with-slot { bottom: 112px; }
+.slow-status strong { font: 800 10px/1 var(--mono); letter-spacing: .12em; }
+.slow-status > span { color: #9bbfc5; font: 700 10px/1 var(--mono); letter-spacing: .08em; }
 .slow-rule { position: relative; width: 100%; height: 2px; overflow: hidden; background: #3d4441; }
+.slow-status .slow-rule { grid-column: 1 / -1; }
 .slow-rule span { display: block; width: var(--slow-progress, 0%); height: 100%; background: var(--bonus-accent); transition: width 80ms linear; }
+.slow-status .slow-rule span { background: #9bbfc5; }
 .presentation-host { position: absolute; top: 146px; left: 50%; width: min(520px, calc(100vw - 48px)); transform: translateX(-50%); text-align: center; }
 .presentation-notice { display: inline-grid; min-width: 260px; gap: 7px; padding: 12px 27px 11px; border-top: 1px solid #c5c6bb; color: #eee9df; animation: notice-in 180ms ease-out both; }
 .presentation-notice[data-tone='sky'] { border-color: #9bbfc5; }
@@ -107,9 +117,10 @@ body:has(#ui-root[data-transition='start']) #game-canvas { animation: enter-fiel
 @keyframes pause-wipe { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
 @keyframes result-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes anomaly-in { from { opacity: 0; transform: translate(-50%, -5px); } to { opacity: 1; transform: translate(-50%, 0); } }
-@keyframes bonus-attention { 0% { transform: scale(.94); } 55% { transform: scale(1.035); } 100% { transform: scale(1); } }
+@keyframes bonus-attention { 0% { transform: scale(.94); } 10% { transform: scale(1.035); } 20%, 34% { transform: scale(1); } 42% { transform: scale(1.02); } 52%, 100% { transform: scale(1); } }
 @keyframes bonus-rule { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes bonus-replace { from { opacity: .2; transform: translateX(-12px) rotate(-10deg); } to { opacity: 1; transform: none; } }
+@keyframes bonus-displace { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(42px) rotate(18deg) scale(.72); } }
 @keyframes notice-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @media (min-height: 900px) {
   .menu-heading { top: calc(50% - 300px); }

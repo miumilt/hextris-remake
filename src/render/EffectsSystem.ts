@@ -211,6 +211,19 @@ export class EffectsSystem {
             });
           }
           break;
+        case 'bonusCollected': {
+          this.impact(0, 0, 70);
+          const angle = TOP_SIDE_ANGLE + event.token.lane * ((Math.PI * 2) / SIDE_COUNT);
+          this.addShockwave({
+            x: center.x + Math.cos(angle) * event.token.distance,
+            y: center.y + Math.sin(angle) * event.token.distance,
+            color: 'ivory',
+            ageMs: 0,
+            lifetimeMs: 260,
+            intensity: 0.6,
+          });
+          break;
+        }
         case 'matchCleared':
           for (const cell of event.cells) this.addFractures(
             cell,
@@ -264,7 +277,9 @@ export class EffectsSystem {
               const color = event.blocks[index]?.color ?? event.blocks[0]?.color ?? 'coral';
               const delay = event.bonus === 'cleanse'
                 ? index * 28
-                : event.bonus === 'colorBreak' ? (index % 4) * 24 : 0;
+                : event.bonus === 'colorBreak'
+                  ? (index % 4) * 24
+                  : event.bonus === 'pulse' ? index * 20 : 0;
               this.addFractures(cell, color, center, orientation, 8, delay, event.bonus);
             });
           }
