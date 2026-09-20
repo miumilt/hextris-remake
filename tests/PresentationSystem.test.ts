@@ -50,6 +50,19 @@ describe('PresentationSystem', () => {
     ]);
   });
 
+  it.each([
+    ['slow', 'FALLING BLOCKS SLOWED FOR 6S'],
+    ['pulse', 'CENTRAL WAVE RELEASED'],
+    ['cleanse', 'SIDE SWEEP RELEASED'],
+    ['colorBreak', 'COLOR FRACTURE RELEASED'],
+  ] as const)('uses action-specific copy when %s activates', (bonus, body) => {
+    const presentation = new PresentationSystem();
+
+    presentation.consume([{ type: 'bonusActivated', bonus }]);
+
+    expect(presentation.snapshot().notice).toMatchObject({ body, lifetimeMs: 620 });
+  });
+
   it('deduplicates repeated low-priority notices', () => {
     const presentation = new PresentationSystem();
     const chain = {

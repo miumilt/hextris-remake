@@ -95,7 +95,7 @@ export class PresentationSystem {
         case 'bonusActivated': {
           const bonus = getBonusPresentation(event.bonus);
           candidates.push(this.createNotice(
-            `${bonus.label} ACTIVATED`, bonus.description, bonus.tone, 4, ACTIVATION_LIFETIME_MS,
+            `${bonus.label} ACTIVATED`, bonus.activationCopy, bonus.tone, 4, ACTIVATION_LIFETIME_MS,
           ));
           break;
         }
