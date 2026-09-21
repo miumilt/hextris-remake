@@ -29,7 +29,7 @@ describe('progression effects', () => {
     expect(snapshot.shake).toEqual({ magnitude: 8, remainingMs: 120 });
     expect(snapshot.fragments).toHaveLength(11);
     expect(snapshot.labels).toEqual([
-      { text: 'CHAIN ×3', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
+      { text: 'СЕРИЯ ×3', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
     ]);
     expect(snapshot.shockwaves).toMatchObject([
       { color: 'amber', ageMs: 0, lifetimeMs: 460, intensity: 0.85 },
@@ -74,11 +74,11 @@ describe('progression effects', () => {
       shake: { magnitude: 7, remainingMs: 180 },
       hitStopRemainingMs: 80,
       shockwaves: [{ x: 40, y: 50, color: 'ivory', ageMs: 0, lifetimeMs: 520, intensity: 1 }],
-      labels: [{ text: 'PULSE', tone: 'coral', ageMs: 0, lifetimeMs: 620 }],
+      labels: [{ text: 'ИМПУЛЬС', tone: 'coral', ageMs: 0, lifetimeMs: 620 }],
       screenFlash: { tone: 'coral', intensity: 0.75, remainingMs: 100 },
     });
     expect(effects.snapshot().fragments).toHaveLength(8);
-    expect(effects.snapshot().fragments[0]).toMatchObject({ color: 'teal', anticipationMs: 70 });
+    expect(effects.snapshot().fragments[0]).toMatchObject({ color: 'teal', anticipationMs: 100 });
     expect(effects.snapshot().fragments[0]!.vy).toBeLessThan(0);
   });
 
@@ -89,22 +89,22 @@ describe('progression effects', () => {
     cleanse.consume([{
       type: 'bonusRemoved', bonus: 'cleanse', cells, blocks, scoreDelta: 80,
     }]);
-    expect(cleanse.snapshot().fragments[0]?.anticipationMs).toBe(70);
-    expect(cleanse.snapshot().fragments[8]?.anticipationMs).toBe(98);
+    expect(cleanse.snapshot().fragments[0]?.anticipationMs).toBe(100);
+    expect(cleanse.snapshot().fragments[8]?.anticipationMs).toBe(128);
 
     const colorBreak = new EffectsSystem({ random: () => 0.5 });
     colorBreak.consume([{
       type: 'bonusRemoved', bonus: 'colorBreak', cells, blocks, scoreDelta: 80,
     }]);
-    expect(colorBreak.snapshot().fragments[0]?.anticipationMs).toBe(70);
-    expect(colorBreak.snapshot().fragments[8]?.anticipationMs).toBe(94);
+    expect(colorBreak.snapshot().fragments[0]?.anticipationMs).toBe(100);
+    expect(colorBreak.snapshot().fragments[8]?.anticipationMs).toBe(124);
 
     const pulse = new EffectsSystem({ random: () => 0.5 });
     pulse.consume([{
       type: 'bonusRemoved', bonus: 'pulse', cells, blocks, scoreDelta: 80,
     }]);
-    expect(pulse.snapshot().fragments[0]?.anticipationMs).toBe(70);
-    expect(pulse.snapshot().fragments[8]?.anticipationMs).toBe(90);
+    expect(pulse.snapshot().fragments[0]?.anticipationMs).toBe(100);
+    expect(pulse.snapshot().fragments[8]?.anticipationMs).toBe(120);
   });
 
   it('announces anomaly starts transiently without retaining a cue when they end', () => {
@@ -112,7 +112,7 @@ describe('progression effects', () => {
 
     effects.consume([{ type: 'anomalyStarted', anomalies: ['inertia'] }]);
     expect(effects.snapshot()).toMatchObject({
-      labels: [{ text: 'INERTIA', tone: 'amber', ageMs: 0, lifetimeMs: 620 }],
+      labels: [{ text: 'ИНЕРЦИЯ', tone: 'amber', ageMs: 0, lifetimeMs: 620 }],
       screenFlash: { tone: 'amber', intensity: 0.55, remainingMs: 100 },
     });
 
@@ -131,8 +131,8 @@ describe('progression effects', () => {
     ]);
 
     expect(effects.snapshot().labels.map(({ text }) => text)).toEqual([
-      'COLOR BREAK',
-      'COLOR SHIFT + INERTIA',
+      'ЦВЕТОВОЙ ВЗРЫВ',
+      'СМЕНА ЦВЕТА + ИНЕРЦИЯ',
     ]);
   });
 
@@ -150,8 +150,8 @@ describe('progression effects', () => {
       shake: { magnitude: 8, remainingMs: 220 },
       screenFlash: { tone: 'coral', intensity: 1, remainingMs: 160 },
       labels: [
-        { text: 'CYCLE 2 COMPLETE', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
-        { text: 'LAST STAND', tone: 'coral', ageMs: 0, lifetimeMs: 620 },
+        { text: 'ЦИКЛ 2 ЗАВЕРШЁН', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
+        { text: 'ПОСЛЕДНИЙ ШАНС', tone: 'coral', ageMs: 0, lifetimeMs: 620 },
       ],
     });
   });
@@ -201,9 +201,9 @@ describe('progression effects', () => {
       screenFlash: null,
       combo: { multiplier: 0, remainingMs: 0 },
       labels: [
-        { text: 'CHAIN ×3', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
-        { text: 'PULSE', tone: 'coral', ageMs: 0, lifetimeMs: 620 },
-        { text: 'CYCLE 2 COMPLETE', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
+        { text: 'СЕРИЯ ×3', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
+        { text: 'ИМПУЛЬС', tone: 'coral', ageMs: 0, lifetimeMs: 620 },
+        { text: 'ЦИКЛ 2 ЗАВЕРШЁН', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
       ],
     });
   });

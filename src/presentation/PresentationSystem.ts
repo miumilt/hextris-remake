@@ -43,10 +43,9 @@ interface MutableNotice extends Omit<PresentationNotice, 'ageMs'> { ageMs: numbe
 interface MutableTransfer extends Omit<BonusTransfer, 'ageMs'> { ageMs: number; }
 
 const MAX_VISIBLE_NOTICES = 3;
-const COLLECTION_LIFETIME_MS = 900;
+const COLLECTION_LIFETIME_MS = 1400;
 const REPLACEMENT_LIFETIME_MS = 950;
 const ACTIVATION_LIFETIME_MS = 620;
-const TRANSFER_LIFETIME_MS = 650 as const;
 const SLOT_ATTENTION_MS = 2500;
 
 export class PresentationSystem {
@@ -66,16 +65,9 @@ export class PresentationSystem {
             && candidate.replacement === event.bonus);
           if (!replacedInBatch) {
             candidates.push(this.createNotice(
-              `${bonus.label} ACQUIRED`, bonus.description, bonus.tone, 3, COLLECTION_LIFETIME_MS,
+              `БОНУС: ${bonus.label}`, bonus.description, bonus.tone, 3, COLLECTION_LIFETIME_MS,
             ));
           }
-          this.transfer = {
-            bonus: event.bonus,
-            lane: event.token.lane,
-            distance: event.token.distance,
-            ageMs: 0,
-            lifetimeMs: TRANSFER_LIFETIME_MS,
-          };
           this.slotAttentionRemainingMs = SLOT_ATTENTION_MS;
           break;
         }
@@ -83,7 +75,7 @@ export class PresentationSystem {
           const replacement = getBonusPresentation(event.replacement);
           const previous = getBonusPresentation(event.previous);
           candidates.push(this.createNotice(
-            `${replacement.label} REPLACED ${previous.label}`,
+            `${replacement.label} ЗАМЕНИЛ ${previous.label}`,
             replacement.description,
             replacement.tone,
             3,
@@ -95,20 +87,20 @@ export class PresentationSystem {
         case 'bonusActivated': {
           const bonus = getBonusPresentation(event.bonus);
           candidates.push(this.createNotice(
-            `${bonus.label} ACTIVATED`, bonus.activationCopy, bonus.tone, 4, ACTIVATION_LIFETIME_MS,
+            `${bonus.label} АКТИВИРОВАН`, bonus.activationCopy, bonus.tone, 4, ACTIVATION_LIFETIME_MS,
           ));
           break;
         }
         case 'matchCleared':
           if (event.chain > 1) {
-            candidates.push(this.createNotice(`CHAIN ×${event.chain}`, '', 'amber', 1, 620));
+            candidates.push(this.createNotice(`СЕРИЯ ×${event.chain}`, '', 'amber', 1, 620));
           }
           break;
         case 'lastStand':
-          candidates.push(this.createNotice('LAST STAND', 'OVERFLOW SURVIVED', 'coral', 4, 900, true));
+          candidates.push(this.createNotice('ПОСЛЕДНИЙ ШАНС', 'ПЕРЕПОЛНЕНИЕ ПЕРЕЖИТО', 'coral', 4, 900, true));
           break;
         case 'gameOver':
-          candidates.push(this.createNotice('GAME OVER', `FINAL SCORE ${event.score}`, 'ivory', 4, 900, true));
+          candidates.push(this.createNotice('ИГРА ОКОНЧЕНА', `ИТОГОВЫЙ СЧЁТ ${event.score}`, 'ivory', 4, 900, true));
           break;
       }
     }
@@ -186,7 +178,7 @@ export class PresentationSystem {
   }
 
   private hasReplacementNotice(): boolean {
-    return [this.notice, ...this.queuedNotices].some((notice) => notice?.title.includes(' REPLACED '));
+    return [this.notice, ...this.queuedNotices].some((notice) => notice?.title.includes(' ЗАМЕНИЛ '));
   }
 
   private freezeNotice(notice: MutableNotice | null): PresentationNotice | null {

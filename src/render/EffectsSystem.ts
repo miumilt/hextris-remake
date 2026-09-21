@@ -1,6 +1,7 @@
 import { BLOCK_DEPTH, HEX_APOTHEM, SIDE_COUNT } from '../game/constants';
 import type { BlockColor, CellRef, GameEvent } from '../game/types';
-import type { BonusType } from '../game/progressionTypes';
+import type { AnomalyType, BonusType } from '../game/progressionTypes';
+import { getBonusPresentation } from '../presentation/bonusPresentation';
 import type { Point } from './geometry';
 
 const MAX_PARTICLES = 180;
@@ -14,11 +15,17 @@ const COMBO_LIFETIME_MS = 360;
 const CLEAR_SHOCKWAVE_LIFETIME_MS = 360;
 const TOP_SIDE_ANGLE = -Math.PI / 2;
 const ASSEMBLY_LIFETIME_MS = 180 as const;
-const FRACTURE_LIFETIME_MS = 700;
-const FRACTURE_ANTICIPATION_MS = 70;
+const FRACTURE_LIFETIME_MS = 620;
+const FRACTURE_ANTICIPATION_MS = 100;
 const BONUS_IMPACT_LIFETIME_MS = 620 as const;
 
-const progressionLabel = (value: string): string => value.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+const ANOMALY_LABELS: Readonly<Record<AnomalyType, string>> = Object.freeze({
+  reverse: 'РЕВЕРС',
+  mirage: 'МИРАЖ',
+  drift: 'ДРЕЙФ',
+  colorShift: 'СМЕНА ЦВЕТА',
+  inertia: 'ИНЕРЦИЯ',
+});
 
 export interface EffectParticle {
   readonly x: number;
@@ -42,6 +49,8 @@ export interface BlockAssembly {
 }
 
 export interface FractureFragment {
+  readonly originX: number;
+  readonly originY: number;
   readonly x: number;
   readonly y: number;
   readonly vx: number;
@@ -240,7 +249,7 @@ export class EffectsSystem {
             lifetimeMs: event.chain > 1 ? 460 : CLEAR_SHOCKWAVE_LIFETIME_MS,
             intensity: event.chain > 1 ? 0.85 : 0.55,
           });
-          if (event.chain > 1) this.addLabel(`CHAIN ×${event.chain}`, 'amber', 620);
+          if (event.chain > 1) this.addLabel(`СЕРИЯ ×${event.chain}`, 'amber', 620);
           break;
         case 'comboChanged':
           if (!this.reducedMotion) {
@@ -291,21 +300,21 @@ export class EffectsSystem {
             lifetimeMs: 520,
             intensity: 1,
           });
-          this.addLabel(progressionLabel(event.bonus), 'coral', 620);
+          this.addLabel(getBonusPresentation(event.bonus).label, 'coral', 620);
           this.flash('coral', 0.75, 100);
           break;
         case 'anomalyStarted':
-          this.addLabel(event.anomalies.map(progressionLabel).join(' + '), 'amber', 620);
+          this.addLabel(event.anomalies.map((anomaly) => ANOMALY_LABELS[anomaly]).join(' + '), 'amber', 620);
           this.flash('amber', 0.55, 100);
           break;
         case 'cycleCompleted':
           this.impact(8, 220);
-          this.addLabel(`CYCLE ${event.cycle} COMPLETE`, 'amber', 620);
+          this.addLabel(`ЦИКЛ ${event.cycle} ЗАВЕРШЁН`, 'amber', 620);
           this.flash('amber', 1, 160);
           break;
         case 'lastStand':
           this.impact(8, 220);
-          this.addLabel('LAST STAND', 'coral', 620);
+          this.addLabel('ПОСЛЕДНИЙ ШАНС', 'coral', 620);
           this.flash('coral', 1, 160);
           break;
         case 'gameOver':
@@ -431,12 +440,14 @@ export class EffectsSystem {
       const tangentSpeed = (this.random() - 0.5) * tangentScale;
       const outwardSpeed = (bonus === 'pulse' ? 145 : 82) + this.random() * 88;
       this.fragments.push({
+        originX: position.x,
+        originY: position.y,
         ...position,
         vx: normal.x * outwardSpeed + tangent.x * tangentSpeed,
         vy: normal.y * outwardSpeed + tangent.y * tangentSpeed,
         rotation: this.random() * Math.PI * 2,
         spin: (this.random() - 0.5) * 12,
-        size: 5 + this.random() * 6,
+        size: 9 + this.random() * 7,
         color,
         ageMs: 0,
         lifetimeMs: FRACTURE_LIFETIME_MS + extraDelayMs,

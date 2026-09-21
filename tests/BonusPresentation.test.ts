@@ -5,20 +5,27 @@ import {
 } from '../src/presentation/bonusPresentation';
 
 describe('bonus presentation metadata', () => {
-  it('defines distinct complete copy and glyphs for every bonus', () => {
+  it('defines distinct Russian copy and glyphs for every bonus', () => {
     expect(Object.keys(BONUS_PRESENTATION).sort()).toEqual([
       'cleanse', 'colorBreak', 'pulse', 'slow',
     ]);
     expect(new Set(Object.values(BONUS_PRESENTATION).map(({ glyph }) => glyph)).size).toBe(4);
     expect(getBonusPresentation('slow')).toMatchObject({
-      label: 'SLOW',
-      description: 'SLOWS FALLING BLOCKS FOR 6 SECONDS',
+      label: 'ЗАМЕДЛЕНИЕ',
+      description: 'ЗАМЕДЛЯЕТ ПАДАЮЩИЕ БЛОКИ НА 6 СЕКУНД',
+      activationCopy: 'БЛОКИ ЗАМЕДЛЕНЫ НА 6 СЕКУНД',
       glyph: 'Ⅱ',
       tone: 'sky',
     });
-    expect(getBonusPresentation('pulse').description).toBe('KNOCKS BLOCKS FROM OUTER SIDES');
-    expect(getBonusPresentation('cleanse').description).toBe('CLEARS THE TALLEST SIDE');
-    expect(getBonusPresentation('colorBreak').description).toBe('REMOVES EVERY BLOCK OF ONE COLOR');
+    expect(getBonusPresentation('pulse')).toMatchObject({
+      label: 'ИМПУЛЬС', description: 'СБРАСЫВАЕТ КРАЙНИЕ БЛОКИ',
+    });
+    expect(getBonusPresentation('cleanse')).toMatchObject({
+      label: 'ОЧИСТКА', description: 'ОЧИЩАЕТ САМУЮ ЗАПОЛНЕННУЮ СТОРОНУ',
+    });
+    expect(getBonusPresentation('colorBreak')).toMatchObject({
+      label: 'ЦВЕТОВОЙ ВЗРЫВ', description: 'УНИЧТОЖАЕТ ВСЕ БЛОКИ ОДНОГО ЦВЕТА',
+    });
     expect(Object.values(BONUS_PRESENTATION).every(Object.isFrozen)).toBe(true);
   });
 });

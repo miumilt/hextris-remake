@@ -98,7 +98,7 @@ h1 { font-family: Impact, 'Arial Narrow', 'Franklin Gothic Heavy', sans-serif; f
 .upgrade-choice:nth-child(2) { clip-path: polygon(35px 0, 100% 0, 100% calc(100% - 19px), calc(100% - 19px) 100%, 0 100%, 0 35px); }
 .upgrade-choice:hover { background: #363b35; transform: translateY(-3px); }
 .upgrade-choice[aria-pressed='true'] { background: #e5e0d5; color: #1b1d1b; }
-.upgrade-choice[aria-pressed='true']::after { content: 'SELECTED'; position: absolute; right: 25px; top: 18px; color: #a85148; font: 700 9px/1 var(--mono); letter-spacing: .16em; }
+.upgrade-choice[aria-pressed='true']::after { content: 'ВЫБРАНО'; position: absolute; right: 25px; top: 18px; color: #a85148; font: 700 9px/1 var(--mono); letter-spacing: .16em; }
 .upgrade-choice .choice-index { position: absolute; top: 18px; left: 23px; color: #858b81; font: 10px/1 var(--mono); }
 .upgrade-choice strong { display: block; max-width: 220px; margin-top: 32px; font: 800 25px/.95 'Arial Narrow', 'Franklin Gothic Medium', Impact, sans-serif; letter-spacing: .02em; }
 .upgrade-choice .choice-description { display: block; margin-top: 18px; font: 11px/1.45 var(--mono); letter-spacing: .07em; color: #aeb0a7; }

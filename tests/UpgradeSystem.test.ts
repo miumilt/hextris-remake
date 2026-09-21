@@ -16,6 +16,21 @@ function assertDeepFrozen(value: unknown): void {
 }
 
 describe('UpgradeSystem', () => {
+  it('offers player-facing upgrade names and descriptions in Russian', () => {
+    const upgrades = new UpgradeSystem(new SequenceRandom());
+
+    expect(upgrades.offer()?.choices).toEqual([
+      {
+        id: 'stabilizer', level: 0, maxLevel: 3,
+        label: 'СТАБИЛИЗАТОР', description: 'СКОРОСТЬ ПАДЕНИЯ −4%',
+      },
+      {
+        id: 'comboRelay', level: 0, maxLevel: 3,
+        label: 'РЕЛЕ КОМБО', description: 'ОКНО КОМБО +300 МС',
+      },
+    ]);
+  });
+
   it('offers two distinct seeded choices, clamps selection, and confirms only the selected choice', () => {
     const first = new UpgradeSystem(new SeededRandom(73));
     const second = new UpgradeSystem(new SeededRandom(73));

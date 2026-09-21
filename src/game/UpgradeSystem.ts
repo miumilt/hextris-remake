@@ -2,12 +2,12 @@ import type { UpgradeChoice, UpgradeId, UpgradeModifiers, UpgradeOffer, UpgradeS
 import type { RandomSource } from './random';
 
 const DEFINITIONS: Readonly<Record<UpgradeId, Omit<UpgradeChoice, 'level'>>> = {
-  stabilizer: { id: 'stabilizer', maxLevel: 3, label: 'STABILIZER', description: 'FALL SPEED -4%' },
-  comboRelay: { id: 'comboRelay', maxLevel: 3, label: 'COMBO RELAY', description: 'COMBO WINDOW +300MS' },
-  salvage: { id: 'salvage', maxLevel: 3, label: 'SALVAGE', description: 'BONUS ARRIVAL +15%' },
-  deepPulse: { id: 'deepPulse', maxLevel: 2, label: 'DEEP PULSE', description: 'PULSE HITS +1 SIDE' },
-  anomalyShield: { id: 'anomalyShield', maxLevel: 3, label: 'ANOMALY SHIELD', description: 'ANOMALY TIME -15%' },
-  lastStand: { id: 'lastStand', maxLevel: 1, label: 'LAST STAND', description: 'SURVIVE ONE OVERFLOW' },
+  stabilizer: { id: 'stabilizer', maxLevel: 3, label: 'СТАБИЛИЗАТОР', description: 'СКОРОСТЬ ПАДЕНИЯ −4%' },
+  comboRelay: { id: 'comboRelay', maxLevel: 3, label: 'РЕЛЕ КОМБО', description: 'ОКНО КОМБО +300 МС' },
+  salvage: { id: 'salvage', maxLevel: 3, label: 'ДОБЫЧА', description: 'БОНУСЫ ПОЯВЛЯЮТСЯ НА 15% ЧАЩЕ' },
+  deepPulse: { id: 'deepPulse', maxLevel: 2, label: 'ГЛУБОКИЙ ИМПУЛЬС', description: 'ИМПУЛЬС ЗАХВАТЫВАЕТ +1 СТОРОНУ' },
+  anomalyShield: { id: 'anomalyShield', maxLevel: 3, label: 'ЩИТ АНОМАЛИЙ', description: 'ВРЕМЯ АНОМАЛИЙ −15%' },
+  lastStand: { id: 'lastStand', maxLevel: 1, label: 'ПОСЛЕДНИЙ ШАНС', description: 'ПЕРЕЖИТЬ ОДНО ПЕРЕПОЛНЕНИЕ' },
 };
 
 const UPGRADE_IDS: readonly UpgradeId[] = [

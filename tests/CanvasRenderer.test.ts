@@ -87,11 +87,11 @@ describe('CanvasRenderer', () => {
     expect(menuRadius).toBeGreaterThan(0);
     expect(menuRadius).toBeLessThan(hubRadius());
   });
-  it('draws one contracting plate per clear origin before the particle burst without mutating effects', () => {
+  it('keeps a cracked source plate visible while large fragments begin to release', () => {
     const { renderer, polygons, context } = surface();
     const fx = new EffectsSystem({ random: () => 0.5 });
     fx.consume([{ type: 'matchCleared', cells: [{ side: 0, index: 0 }, { side: 0, index: 1 }], color: 'teal', chain: 1 }]);
-    fx.update(35);
+    fx.update(50);
     const snapshot = fx.snapshot();
     const before = JSON.stringify(snapshot);
     renderer.resize(800, 600, 1);
@@ -102,7 +102,14 @@ describe('CanvasRenderer', () => {
     expect(context.scale.mock.calls.some(([x, y]) => x > 0.5 && x < 1 && y === x)).toBe(true);
     expect(JSON.stringify(snapshot)).toBe(before);
     polygons.length = 0;
-    fx.update(40);
+    fx.update(50);
+    fx.update(50);
+    renderer.render(playing(), fx.snapshot(), presentation(), 0);
+    expect(polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object')).toHaveLength(2);
+    expect(polygons.some(({ points, style }) => points.length >= 3 && points.length <= 5 && typeof style === 'string')).toBe(true);
+
+    polygons.length = 0;
+    fx.update(50); fx.update(50); fx.update(50);
     renderer.render(playing(), fx.snapshot(), presentation(), 0);
     expect(polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object')).toHaveLength(0);
   });

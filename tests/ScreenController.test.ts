@@ -37,7 +37,10 @@ describe('ScreenController', () => {
     screen.render(snapshot({ mode: 'menu' }), emptyPresentation());
     expect(root.querySelector('h1')?.textContent).toBe('HEXTRIS');
     expect(root.textContent).toContain('A / D');
-    root.querySelector('button')!.innerHTML = '<span>PLAY</span>';
+    expect(root.textContent).toContain('ИГРАТЬ');
+    expect(root.textContent).toContain('ВРАЩАТЬ');
+    expect(root.textContent).toContain('ПАУЗА');
+    root.querySelector('button')!.innerHTML = '<span>ИГРАТЬ</span>';
     (root.querySelector('button span') as HTMLElement).click();
     expect(engine.getSnapshot().mode).toBe('playing');
     screen.render(snapshot({ mode: 'playing', score: 81 }), emptyPresentation());
@@ -63,10 +66,14 @@ describe('ScreenController', () => {
     screen.bind(bindings);
     screen.render(snapshot({ mode: 'playing' }), emptyPresentation()); click('pause');
     screen.render(snapshot({ mode: 'paused' }), emptyPresentation());
+    expect(root.textContent).toContain('ПАУЗА');
+    expect(root.textContent).toContain('ПРОДОЛЖИТЬ');
     expect([...root.querySelectorAll('button')].map(button => button.dataset.action)).toEqual(['resume', 'restart', 'menu']);
     click('resume'); click('restart'); click('menu');
     screen.render(snapshot({ mode: 'gameOver', score: 144 }), emptyPresentation());
     expect(root.textContent).toContain('144');
+    expect(root.textContent).toContain('ИГРА ОКОНЧЕНА');
+    expect(root.textContent).toContain('ЕЩЁ РАЗ');
     expect([...root.querySelectorAll('button')].map(button => button.dataset.action)).toEqual(['retry', 'menu']);
     click('retry'); click('menu');
     screen.destroy(); click('retry');
@@ -81,12 +88,13 @@ describe('ScreenController', () => {
       bonus: { stored: 'pulse', slowRemainingMs: 0 },
       upgrades: { levels: { stabilizer: 2, comboRelay: 0, salvage: 1, deepPulse: 0, anomalyShield: 0, lastStand: 0 }, choices: [], selectedIndex: 0 },
     }), emptyPresentation());
-    expect(root.querySelector('[aria-label="Score"]')?.textContent).toBe('81');
+    expect(root.querySelector('[aria-label="Счёт"]')?.textContent).toBe('81');
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40');
-    expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe('Cycle 2, pressure');
-    expect(root.querySelector('[aria-label="Stored bonus: PULSE"]')).not.toBeNull();
+    expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe('Цикл 2, давление');
+    expect(root.querySelector('[aria-label="Сохранённый бонус: ИМПУЛЬС"]')).not.toBeNull();
     expect(root.querySelectorAll('.upgrade-mark')).toHaveLength(3);
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('REVERSE');
+    expect(root.querySelector('.upgrade-mark')?.getAttribute('title')).toBe('СТАБИЛИЗАТОР — УРОВЕНЬ 1');
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('РЕВЕРС');
     expect(root.querySelector('[data-action="pause"]')).not.toBeNull();
 
     screen.render(snapshot({ mode: 'playing' }), emptyPresentation());
@@ -98,8 +106,8 @@ describe('ScreenController', () => {
     const screen = new ScreenController(root);
     const presentation: PresentationSnapshot = Object.freeze({
       notice: Object.freeze({
-        title: 'SLOW ACQUIRED',
-        body: 'SLOWS FALLING BLOCKS FOR 6 SECONDS',
+        title: 'БОНУС: ЗАМЕДЛЕНИЕ',
+        body: 'ЗАМЕДЛЯЕТ ПАДАЮЩИЕ БЛОКИ НА 6 СЕКУНД',
         tone: 'sky' as const,
         priority: 3 as const,
         ageMs: 0,
@@ -117,12 +125,12 @@ describe('ScreenController', () => {
       bonus: { stored: 'slow', slowRemainingMs: 4200 },
     }), presentation);
 
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('SLOW ACQUIRED');
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('SLOWS FALLING BLOCKS FOR 6 SECONDS');
-    expect(root.querySelector('.bonus-slot')?.textContent).toContain('SPACE');
-    expect(root.querySelector('.bonus-slot')?.textContent).toContain('ACTIVATE');
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('БОНУС: ЗАМЕДЛЕНИЕ');
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('ЗАМЕДЛЯЕТ ПАДАЮЩИЕ БЛОКИ НА 6 СЕКУНД');
+    expect(root.querySelector('.bonus-slot')?.textContent).toContain('ПРОБЕЛ');
+    expect(root.querySelector('.bonus-slot')?.textContent).toContain('ИСПОЛЬЗОВАТЬ');
     expect(root.querySelector('.bonus-slot')?.classList.contains('attention')).toBe(true);
-    expect(root.querySelector('[aria-label="Slow remaining"]')?.getAttribute('aria-valuenow')).toBe('4200');
+    expect(root.querySelector('[aria-label="Осталось замедления"]')?.getAttribute('aria-valuenow')).toBe('4200');
   });
 
   it('keeps the active slow timer visible after the inventory slot is consumed', () => {
@@ -134,24 +142,24 @@ describe('ScreenController', () => {
     }), emptyPresentation());
 
     expect(root.querySelector('.bonus-slot')).toBeNull();
-    expect(root.querySelector('.slow-status')?.textContent).toContain('SLOW ACTIVE');
-    expect(root.querySelector('[aria-label="Slow remaining"]')?.getAttribute('aria-valuenow')).toBe('4200');
+    expect(root.querySelector('.slow-status')?.textContent).toContain('ЗАМЕДЛЕНИЕ АКТИВНО');
+    expect(root.querySelector('[aria-label="Осталось замедления"]')?.getAttribute('aria-valuenow')).toBe('4200');
 
     screen.render(snapshot({
       mode: 'playing',
       bonus: { stored: 'pulse', slowRemainingMs: 2100 },
     }), emptyPresentation());
 
-    expect(root.querySelector('[aria-label="Stored bonus: PULSE"]')).not.toBeNull();
+    expect(root.querySelector('[aria-label="Сохранённый бонус: ИМПУЛЬС"]')).not.toBeNull();
     expect(root.querySelector('.slow-status')?.classList.contains('with-slot')).toBe(true);
-    expect(root.querySelector('[aria-label="Slow remaining"]')?.getAttribute('aria-valuenow')).toBe('2100');
+    expect(root.querySelector('[aria-label="Осталось замедления"]')?.getAttribute('aria-valuenow')).toBe('2100');
   });
 
   it('shows the displaced old glyph while its replacement enters the slot', () => {
     const screen = new ScreenController(root);
     const replacement: PresentationSnapshot = Object.freeze({
       notice: Object.freeze({
-        title: 'PULSE REPLACED SLOW', body: 'KNOCKS BLOCKS FROM OUTER SIDES',
+        title: 'ИМПУЛЬС ЗАМЕНИЛ ЗАМЕДЛЕНИЕ', body: 'СБРАСЫВАЕТ КРАЙНИЕ БЛОКИ',
         tone: 'amber', priority: 3, ageMs: 0, lifetimeMs: 950, assertive: false,
       }),
       queuedNotices: Object.freeze([]),
@@ -165,15 +173,15 @@ describe('ScreenController', () => {
     }), replacement);
 
     expect(root.querySelector('.bonus-glyph.current')?.textContent).toBe('⌁');
-    expect(root.querySelector('[data-replaced-bonus="SLOW"]')?.textContent).toBe('Ⅱ');
+    expect(root.querySelector('[data-replaced-bonus="ЗАМЕДЛЕНИЕ"]')?.textContent).toBe('Ⅱ');
   });
 
   it('preserves transient HUD nodes and focus across repeated renders and removal', () => {
     const screen = new ScreenController(root);
     const active: PresentationSnapshot = Object.freeze({
       notice: Object.freeze({
-        title: 'PULSE ACQUIRED',
-        body: 'KNOCKS BLOCKS FROM OUTER SIDES',
+        title: 'БОНУС: ИМПУЛЬС',
+        body: 'СБРАСЫВАЕТ КРАЙНИЕ БЛОКИ',
         tone: 'amber' as const,
         priority: 3 as const,
         ageMs: 120,
@@ -214,8 +222,8 @@ describe('ScreenController', () => {
         levels: { stabilizer: 0, comboRelay: 0, salvage: 0, deepPulse: 0, anomalyShield: 0, lastStand: 0 },
         selectedIndex: 0,
         choices: [
-          { id: 'stabilizer', level: 0, maxLevel: 3, label: 'STABILIZER', description: 'FALL SPEED -4%' },
-          { id: 'deepPulse', level: 1, maxLevel: 2, label: 'DEEP PULSE', description: 'PULSE HITS +1 SIDE' },
+          { id: 'stabilizer', level: 0, maxLevel: 3, label: 'СТАБИЛИЗАТОР', description: 'СКОРОСТЬ ПАДЕНИЯ −4%' },
+          { id: 'deepPulse', level: 1, maxLevel: 2, label: 'ГЛУБОКИЙ ИМПУЛЬС', description: 'ИМПУЛЬС ЗАХВАТЫВАЕТ +1 СТОРОНУ' },
         ],
       },
     }), emptyPresentation());
@@ -224,15 +232,15 @@ describe('ScreenController', () => {
     expect(choices.map((choice) => choice.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
     expect(choices[0]!.hasAttribute('aria-label')).toBe(false);
     const labelledBy = choices[0]!.getAttribute('aria-labelledby')!.split(' ');
-    expect(labelledBy.map((id) => document.getElementById(id)?.textContent?.trim())).toEqual(['STABILIZER', 'LEVEL 1 / 3']);
+    expect(labelledBy.map((id) => document.getElementById(id)?.textContent?.trim())).toEqual(['СТАБИЛИЗАТОР', 'УРОВЕНЬ 1 / 3']);
     const describedBy = choices[0]!.getAttribute('aria-describedby')!;
-    expect(document.getElementById(describedBy)?.textContent).toBe('FALL SPEED -4%');
+    expect(document.getElementById(describedBy)?.textContent).toBe('СКОРОСТЬ ПАДЕНИЯ −4%');
     expect(document.activeElement).toBe(choices[0]);
-    expect(root.querySelector('h1')?.textContent).toBe('CHOOSE UPGRADE');
-    expect(root.textContent).toContain('STABILIZER');
-    expect(root.textContent).toContain('FALL SPEED -4%');
-    expect(root.textContent).toContain('DEEP PULSE');
-    expect(root.textContent).toContain('PULSE HITS +1 SIDE');
+    expect(root.querySelector('h1')?.textContent).toBe('ВЫБЕРИ УЛУЧШЕНИЕ');
+    expect(root.textContent).toContain('СТАБИЛИЗАТОР');
+    expect(root.textContent).toContain('СКОРОСТЬ ПАДЕНИЯ −4%');
+    expect(root.textContent).toContain('ГЛУБОКИЙ ИМПУЛЬС');
+    expect(root.textContent).toContain('ИМПУЛЬС ЗАХВАТЫВАЕТ +1 СТОРОНУ');
     expect(root.textContent?.toLowerCase()).not.toMatch(/settings|store/);
     choices[1]!.click();
     expect(calls).toEqual(['select:1', 'confirm']);
@@ -246,8 +254,8 @@ describe('ScreenController', () => {
         levels: { stabilizer: 0, comboRelay: 0, salvage: 0, deepPulse: 0, anomalyShield: 0, lastStand: 0 },
         selectedIndex: 0,
         choices: [
-          { id: 'stabilizer', level: 0, maxLevel: 3, label: 'STABILIZER', description: 'FALL SPEED -4%' },
-          { id: 'deepPulse', level: 1, maxLevel: 2, label: 'DEEP PULSE', description: 'PULSE HITS +1 SIDE' },
+          { id: 'stabilizer', level: 0, maxLevel: 3, label: 'СТАБИЛИЗАТОР', description: 'СКОРОСТЬ ПАДЕНИЯ −4%' },
+          { id: 'deepPulse', level: 1, maxLevel: 2, label: 'ГЛУБОКИЙ ИМПУЛЬС', description: 'ИМПУЛЬС ЗАХВАТЫВАЕТ +1 СТОРОНУ' },
         ],
       },
     });
@@ -270,7 +278,7 @@ describe('ScreenController', () => {
       upgrades: {
         levels: { stabilizer: 3, comboRelay: 3, salvage: 3, deepPulse: 2, anomalyShield: 3, lastStand: 0 },
         selectedIndex: 0,
-        choices: [{ id: 'lastStand', level: 0, maxLevel: 1, label: 'LAST STAND', description: 'SURVIVE ONE OVERFLOW' }],
+        choices: [{ id: 'lastStand', level: 0, maxLevel: 1, label: 'ПОСЛЕДНИЙ ШАНС', description: 'ПЕРЕЖИТЬ ОДНО ПЕРЕПОЛНЕНИЕ' }],
       },
     }), emptyPresentation());
     expect(root.querySelectorAll('[data-action="upgrade"]')).toHaveLength(1);

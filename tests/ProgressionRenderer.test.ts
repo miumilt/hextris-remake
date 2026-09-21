@@ -137,14 +137,18 @@ describe('progression rendering', () => {
     expect(plates(polygons)).toHaveLength(1);
   });
 
-  it('renders an ivory inset bonus token with its deterministic one-letter glyph', () => {
+  it('renders a large bonus token with both its glyph and Russian name', () => {
     const { renderer, polygons, text } = surface();
     renderer.render(snapshot({
       fallingBonuses: [{ id: 4, type: 'colorBreak', lane: 2, distance: 320, speed: 0 }],
     }), baseEffects(), presentation(), 1);
 
-    expect(polygons.some(({ style }) => style === VISUAL_COLORS.ink)).toBe(true);
+    expect(polygons.some(({ style }) => style === VISUAL_COLORS.coral)).toBe(true);
     expect(text).toContainEqual(expect.objectContaining({ value: '◆' }));
+    expect(text).toContainEqual(expect.objectContaining({ value: 'ЦВЕТОВОЙ ВЗРЫВ' }));
+    const token = polygons.find(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.coral)!;
+    const [tokenX, tokenY] = center(token);
+    expect(Math.max(...token.points.map(([x, y]) => Math.hypot(x - tokenX, y - tokenY)))).toBeGreaterThan(22);
   });
 
   it('assembles a newly spawned block from a scaled faceted silhouette', () => {
@@ -232,7 +236,7 @@ describe('progression rendering', () => {
     )).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('moves a collected bonus glyph from the world toward its readable slot', () => {
+  it('does not draw an ambiguous traveling glyph after collection', () => {
     const { renderer, text } = surface();
     const timeline = new PresentationSystem();
     timeline.consume([{
@@ -243,32 +247,8 @@ describe('progression rendering', () => {
 
     renderer.render(snapshot({ bonus: { stored: 'pulse', slowRemainingMs: 0 } }), baseEffects(), timeline.snapshot(), 0);
 
-    expect(text).toContainEqual(expect.objectContaining({ value: '⌁' }));
-  });
-
-  it('cross-fades a collected glyph at the slot instead of traveling when motion is reduced', () => {
-    const normal = surface();
-    const reduced = surface();
-    const timeline = new PresentationSystem();
-    timeline.consume([{
-      type: 'bonusCollected', bonus: 'pulse',
-      token: { id: 12, type: 'pulse', lane: 2, distance: 72, speed: 150 },
-    }]);
-    timeline.update(320);
-    const game = snapshot({ bonus: { stored: 'pulse', slowRemainingMs: 0 } });
-
-    normal.renderer.render(game, baseEffects(), timeline.snapshot(), 0);
-    reduced.renderer.render(
-      game,
-      new EffectsSystem({ random: () => 0.5, reducedMotion: true }).snapshot(),
-      timeline.snapshot(),
-      0,
-    );
-
-    const normalGlyph = normal.text.find(({ value }) => value === '⌁')!;
-    const reducedGlyph = reduced.text.find(({ value }) => value === '⌁')!;
-    expect(reducedGlyph.x - normalGlyph.x).toBeGreaterThan(200);
-    expect(reducedGlyph.y - normalGlyph.y).toBeGreaterThan(200);
+    expect(timeline.snapshot().transfer).toBeNull();
+    expect(text).not.toContainEqual(expect.objectContaining({ value: '⌁' }));
   });
 
   it('keeps reduced motion free of assembly transforms and traveling fragments', () => {

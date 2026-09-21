@@ -405,23 +405,39 @@ export class CanvasRenderer {
 
   private bonusToken(bonus: FallingBonus, mode: GameSnapshot['mode'], fraction: number): void {
     const ctx = this.ctx;
+    const presentation = getBonusPresentation(bonus.type);
     const distance = this.finite(bonus.distance, START_DISTANCE)
       + (mode === 'playing' ? this.finite(bonus.speed) * (1 - fraction) * FIXED_STEP_MS / 1000 : 0);
     const angle = this.laneAngle(bonus.lane);
     const point = { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
     const rotation = angle + Math.PI / 6;
     ctx.save();
-    this.path(hexPoints({ x: point.x, y: point.y + 3 }, 18, rotation));
+    this.path(hexPoints({ x: point.x, y: point.y + 4 }, 30, rotation));
     ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.fill();
-    this.path(hexPoints(point, 17, rotation));
+    this.path(hexPoints(point, 28, rotation));
+    ctx.fillStyle = VISUAL_COLORS[presentation.tone]; ctx.fill();
+    this.path(hexPoints(point, 20, rotation));
     ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill();
-    this.path(hexPoints(point, 10, rotation));
+    this.path(hexPoints(point, 13, rotation));
     ctx.fillStyle = VISUAL_COLORS.background; ctx.fill();
     ctx.fillStyle = VISUAL_COLORS.ink;
-    ctx.font = '700 12px Arial, sans-serif';
+    ctx.font = '800 17px Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(getBonusPresentation(bonus.type).glyph, point.x, point.y + 0.5);
+    ctx.fillText(presentation.glyph, point.x, point.y + 0.5);
+
+    const labelPoint = {
+      x: point.x - Math.cos(angle) * 46,
+      y: point.y - Math.sin(angle) * 46,
+    };
+    const labelWidth = Math.max(78, presentation.label.length * 7.4);
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = VISUAL_COLORS.background;
+    ctx.fillRect(labelPoint.x - labelWidth / 2, labelPoint.y - 9, labelWidth, 18);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = VISUAL_COLORS[presentation.tone];
+    ctx.font = '800 11px Arial, sans-serif';
+    ctx.fillText(presentation.label, labelPoint.x, labelPoint.y + 0.5);
     ctx.restore();
   }
 
@@ -607,27 +623,28 @@ export class CanvasRenderer {
       ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill(); ctx.restore();
     }
     const contracting = new Set<string>();
+    const releasing = new Set<string>();
     for (const fragment of effects.fragments) {
       if (fragment.ageMs < fragment.anticipationMs) {
         // Fragments share each cleared plate's origin during anticipation.
         // Draw its contracting silhouette once, without retaining game-state ghosts.
-        const key = `${fragment.x.toFixed(3)},${fragment.y.toFixed(3)},${fragment.color},${fragment.anticipationMs}`;
+        const key = `${fragment.originX.toFixed(3)},${fragment.originY.toFixed(3)},${fragment.color},${fragment.anticipationMs}`;
         if (!contracting.has(key)) {
           contracting.add(key);
           const progress = fragment.ageMs / fragment.anticipationMs;
           const scale = 1 - ease(progress) * 0.28;
-          const angle = Math.atan2(fragment.y, fragment.x);
-          const distance = Math.hypot(fragment.x, fragment.y);
+          const angle = Math.atan2(fragment.originY, fragment.originX);
+          const distance = Math.hypot(fragment.originX, fragment.originY);
           ctx.save();
           ctx.globalAlpha = 1 - progress * 0.42;
-          ctx.translate(fragment.x, fragment.y);
+          ctx.translate(fragment.originX, fragment.originY);
           ctx.scale(scale, scale);
-          ctx.translate(-fragment.x, -fragment.y);
+          ctx.translate(-fragment.originX, -fragment.originY);
           this.plate(angle, distance, fragment.color);
           ctx.beginPath();
           const seamAngle = angle + Math.PI * 0.62;
-          ctx.moveTo(fragment.x - Math.cos(seamAngle) * 9, fragment.y - Math.sin(seamAngle) * 9);
-          ctx.lineTo(fragment.x + Math.cos(seamAngle) * 9, fragment.y + Math.sin(seamAngle) * 9);
+          ctx.moveTo(fragment.originX - Math.cos(seamAngle) * 11, fragment.originY - Math.sin(seamAngle) * 11);
+          ctx.lineTo(fragment.originX + Math.cos(seamAngle) * 11, fragment.originY + Math.sin(seamAngle) * 11);
           ctx.strokeStyle = 'rgba(23,25,24,0.72)';
           ctx.lineWidth = 1.5 / this.scale;
           ctx.stroke();
@@ -636,6 +653,21 @@ export class CanvasRenderer {
         continue;
       }
       const releasedAge = fragment.ageMs - fragment.anticipationMs;
+      const originKey = `${fragment.originX.toFixed(3)},${fragment.originY.toFixed(3)},${fragment.color},${fragment.anticipationMs}`;
+      if (releasedAge < 180 && !releasing.has(originKey)) {
+        releasing.add(originKey);
+        const releaseProgress = ease(releasedAge / 180);
+        const sourceAngle = Math.atan2(fragment.originY, fragment.originX);
+        const sourceDistance = Math.hypot(fragment.originX, fragment.originY);
+        ctx.save();
+        ctx.globalAlpha = (1 - releaseProgress) * 0.72;
+        ctx.translate(fragment.originX, fragment.originY);
+        const sourceScale = 0.72 - releaseProgress * 0.16;
+        ctx.scale(sourceScale, sourceScale);
+        ctx.translate(-fragment.originX, -fragment.originY);
+        this.plate(sourceAngle, sourceDistance, fragment.color);
+        ctx.restore();
+      }
       const releasedLife = Math.max(1, fragment.lifetimeMs - fragment.anticipationMs);
       const life = Math.max(0, 1 - releasedAge / releasedLife);
       const sides = 3 + (Math.round(fragment.size) % 3);

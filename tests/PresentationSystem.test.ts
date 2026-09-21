@@ -8,27 +8,25 @@ const collected: PresentationEvent = {
 };
 
 describe('PresentationSystem', () => {
-  it('explains acquisition, transfers the glyph, and settles slot attention', () => {
+  it('explains acquisition in Russian without an ambiguous flying glyph', () => {
     const presentation = new PresentationSystem();
 
     presentation.consume([collected]);
 
     expect(presentation.snapshot()).toMatchObject({
       notice: {
-        title: 'PULSE ACQUIRED',
-        body: 'KNOCKS BLOCKS FROM OUTER SIDES',
-        lifetimeMs: 900,
+        title: 'БОНУС: ИМПУЛЬС',
+        body: 'СБРАСЫВАЕТ КРАЙНИЕ БЛОКИ',
+        lifetimeMs: 1400,
       },
-      transfer: {
-        bonus: 'pulse', lane: 2, distance: 72, ageMs: 0, lifetimeMs: 650,
-      },
+      transfer: null,
       slotAttentionRemainingMs: 2500,
     });
-    presentation.update(650);
-    expect(presentation.snapshot().transfer).toBeNull();
-    presentation.update(250);
+    presentation.update(1399);
+    expect(presentation.snapshot().notice).not.toBeNull();
+    presentation.update(1);
     expect(presentation.snapshot().notice).toBeNull();
-    presentation.update(1600);
+    presentation.update(1100);
     expect(presentation.snapshot().slotAttentionRemainingMs).toBe(0);
   });
 
@@ -43,18 +41,18 @@ describe('PresentationSystem', () => {
     ]);
 
     expect(presentation.snapshot().notice).toMatchObject({
-      title: 'LAST STAND', body: 'OVERFLOW SURVIVED', assertive: true,
+      title: 'ПОСЛЕДНИЙ ШАНС', body: 'ПЕРЕПОЛНЕНИЕ ПЕРЕЖИТО', assertive: true,
     });
     expect(presentation.snapshot().queuedNotices.map(({ title }) => title)).toEqual([
-      'PULSE ACTIVATED', 'PULSE REPLACED SLOW',
+      'ИМПУЛЬС АКТИВИРОВАН', 'ИМПУЛЬС ЗАМЕНИЛ ЗАМЕДЛЕНИЕ',
     ]);
   });
 
   it.each([
-    ['slow', 'FALLING BLOCKS SLOWED FOR 6S'],
-    ['pulse', 'CENTRAL WAVE RELEASED'],
-    ['cleanse', 'SIDE SWEEP RELEASED'],
-    ['colorBreak', 'COLOR FRACTURE RELEASED'],
+    ['slow', 'БЛОКИ ЗАМЕДЛЕНЫ НА 6 СЕКУНД'],
+    ['pulse', 'ЦЕНТРАЛЬНАЯ ВОЛНА ЗАПУЩЕНА'],
+    ['cleanse', 'САМАЯ ЗАПОЛНЕННАЯ СТОРОНА ОЧИЩЕНА'],
+    ['colorBreak', 'ВСЕ БЛОКИ ЦВЕТА УНИЧТОЖЕНЫ'],
   ] as const)('uses action-specific copy when %s activates', (bonus, body) => {
     const presentation = new PresentationSystem();
 
@@ -74,7 +72,7 @@ describe('PresentationSystem', () => {
 
     presentation.consume([chain, chain, chain]);
 
-    expect(presentation.snapshot().notice?.title).toBe('CHAIN ×2');
+    expect(presentation.snapshot().notice?.title).toBe('СЕРИЯ ×2');
     expect(presentation.snapshot().queuedNotices).toEqual([]);
   });
 

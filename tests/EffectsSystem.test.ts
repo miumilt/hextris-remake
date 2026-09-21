@@ -24,8 +24,19 @@ describe('EffectsSystem', () => {
 
     expect(effects.snapshot().fragments).toHaveLength(8);
     expect(effects.snapshot().fragments[0]).toMatchObject({
-      color: 'coral', ageMs: 0, lifetimeMs: 700, anticipationMs: 70,
+      color: 'coral', ageMs: 0, lifetimeMs: 620, anticipationMs: 100,
     });
+    expect(effects.snapshot().fragments[0]!.originX).toBeCloseTo(0);
+    expect(effects.snapshot().fragments[0]!.originY).toBeCloseTo(-72);
+    expect(effects.snapshot().fragments[0]!.size).toBeGreaterThanOrEqual(9);
+
+    effects.update(50);
+    effects.update(50);
+    expect(effects.snapshot().fragments[0]!.x).toBeCloseTo(0);
+    expect(effects.snapshot().fragments[0]!.y).toBeCloseTo(-72);
+    expect(effects.snapshot().fragments[0]!.ageMs).toBe(100);
+    effects.update(50);
+    expect(effects.snapshot().fragments[0]!.y).toBeLessThan(-72);
   });
 
   it('distinguishes empty activation from removal and keeps all channels bounded', () => {
@@ -90,8 +101,14 @@ describe('EffectsSystem', () => {
     expect(fragment?.y).toBeCloseTo(before?.y ?? 0);
 
     effects.update(50);
+    const anticipated = effects.snapshot().fragments[0]!;
+    expect(anticipated.ageMs).toBe(100);
+    expect(anticipated.x).toBeCloseTo(before!.x);
+    expect(anticipated.y).toBeCloseTo(before!.y);
+
+    effects.update(50);
     const moving = effects.snapshot().fragments[0]!;
-    expect(moving.ageMs).toBe(100);
+    expect(moving.ageMs).toBe(150);
     expect(moving.x).toBeCloseTo(before!.x);
     expect(moving.y).toBeLessThan(before!.y);
     expect(before!.ageMs).toBe(0);
