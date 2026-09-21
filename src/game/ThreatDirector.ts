@@ -39,6 +39,11 @@ const PHASE_INTERVAL_MULTIPLIER: Readonly<Record<GamePhase, number>> = {
 interface MutableAnomaly { type: AnomalyType; remainingMs: number; }
 
 const freeze = <T extends object>(value: T): Readonly<T> => Object.freeze(value);
+const canonicalMs = (value: number): number => {
+  const integer = Math.round(value);
+  if (Math.abs(value - integer) < 1e-9) return integer;
+  return Math.round(value * 1e9) / 1e9;
+};
 const phaseAt = (elapsedMs: number): GamePhase => {
   if (elapsedMs < SETTLE_END_MS) return 'settle';
   if (elapsedMs < BUILD_END_MS) return 'build';
@@ -159,8 +164,8 @@ export class ThreatDirector {
   }
 
   private advance(stepMs: number): void {
-    this.elapsedMs += stepMs;
-    this.totalActiveMs += stepMs;
+    this.elapsedMs = canonicalMs(this.elapsedMs + stepMs);
+    this.totalActiveMs = canonicalMs(this.totalActiveMs + stepMs);
     if (!this.deferredBonus && this.bonusRemainingMs !== null) this.bonusRemainingMs -= stepMs;
     if (this.warning.length > 0) this.warningRemainingMs -= stepMs;
     for (const anomaly of this.anomalies) anomaly.remainingMs -= stepMs;

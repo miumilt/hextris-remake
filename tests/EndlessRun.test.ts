@@ -1,10 +1,40 @@
 import { describe, expect, it } from 'vitest';
 import { ThreatDirector } from '../src/game/ThreatDirector';
+import { GameEngine } from '../src/game/GameEngine';
 import { SeededRandom } from '../src/game/random';
 
 const modifiers = { anomalyDurationMultiplier: 1, bonusIntervalMultiplier: 1 };
 
 describe('endless threat pressure', () => {
+  it('keeps a complete seeded three-cycle integration deterministic across frame chunking', () => {
+    const run = (frameMs: 250 | 500) => {
+      const game = new GameEngine({
+        randomSeed: 14,
+        spawning: false,
+        maxStackDepth: 100,
+        director: { forcedAnomaliesByCycle: { 2: ['reverse'], 3: ['drift'] } },
+      });
+      const eventTypes: string[] = [];
+      game.start();
+      while (game.getSnapshot().mode === 'playing') eventTypes.push(...game.update(frameMs).map(({ type }) => type));
+      const frozen = JSON.stringify(game.getSnapshot());
+      game.update(5_000);
+      const upgradeFrozen = JSON.stringify(game.getSnapshot()) === frozen;
+      game.enqueue({ type: 'confirmUpgrade' });
+      eventTypes.push(...game.update(0).map(({ type }) => type));
+      return { eventTypes, upgradeFrozen, snapshot: game.getSnapshot() };
+    };
+
+    const coarse = run(500);
+    const fine = run(250);
+    expect(coarse).toEqual(fine);
+    expect(coarse.upgradeFrozen).toBe(true);
+    expect(coarse.eventTypes).toEqual(expect.arrayContaining([
+      'cycleCompleted', 'anomalyWarning', 'anomalyStarted', 'upgradeOffered', 'upgradeSelected',
+    ]));
+    expect(coarse.snapshot).toMatchObject({ mode: 'playing', cycle: { number: 4, phase: 'settle' } });
+  });
+
   it('keeps speed rising and cadence falling only to the soft 600/500 ceilings', () => {
     const director = new ThreatDirector(new SeededRandom(17));
     const profiles: { speed: number; intervalMs: number }[] = [];

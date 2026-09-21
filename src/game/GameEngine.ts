@@ -46,7 +46,8 @@ export interface DebugPlacement {
 
 const canonicalMs = (value: number): number => {
   const integer = Math.round(value);
-  return Math.abs(value - integer) < 1e-9 ? integer : value;
+  if (Math.abs(value - integer) < 1e-9) return integer;
+  return Math.round(value * 1e9) / 1e9;
 };
 
 export class GameEngine {
@@ -145,6 +146,8 @@ export class GameEngine {
           this.spawner.getNextEventMs(startProfile) / motionMultiplier,
         );
       }
+      const landingMotionMs = this.getNextLandingMotionMs();
+      if (landingMotionMs !== null) requestedMs = Math.min(requestedMs, landingMotionMs / motionMultiplier);
       if (this.delayedRotations.length > 0) {
         requestedMs = Math.min(
           requestedMs,
@@ -408,9 +411,9 @@ export class GameEngine {
     for (const bonus of this.fallingBonuses) {
       const moved = Object.freeze({
         ...bonus,
-        distance: START_DISTANCE - (
+        distance: canonicalMs(START_DISTANCE - (
           bonus.speed * (this.motionElapsedMs - (this.fallingBonusBornAt.get(bonus.id) ?? this.motionElapsedMs))
-        ) / 1000,
+        ) / 1000),
       });
       if (moved.distance > HEX_APOTHEM) {
         stillFalling.push(moved);
@@ -436,9 +439,9 @@ export class GameEngine {
     const stillFalling: FallingBlock[] = [];
 
     for (const block of this.falling) {
-      const distance = START_DISTANCE - (
+      const distance = canonicalMs(START_DISTANCE - (
         block.speed * (this.motionElapsedMs - (this.fallingBornAt.get(block.id) ?? this.motionElapsedMs))
-      ) / 1000;
+      ) / 1000);
       let moved: FallingBlock = { ...block, distance };
       if (block.driftToLane !== undefined) {
         moved = {
@@ -482,6 +485,21 @@ export class GameEngine {
     }
 
     this.falling = stillFalling;
+  }
+
+  private getNextLandingMotionMs(): number | null {
+    let nextMs = Number.POSITIVE_INFINITY;
+    for (const block of this.falling) {
+      const distance = canonicalMs(START_DISTANCE - (
+        block.speed * (this.motionElapsedMs - (this.fallingBornAt.get(block.id) ?? this.motionElapsedMs))
+      ) / 1000);
+      const collisionLane = block.driftToLane !== undefined ? block.driftToLane : block.lane;
+      const side = this.grid.laneToSide(collisionLane);
+      const landingDistance = HEX_APOTHEM + this.grid.snapshot()[side]!.length * BLOCK_DEPTH;
+      const remainingMs = (distance - landingDistance) * 1000 / block.speed;
+      nextMs = Math.min(nextMs, Math.max(0.001, remainingMs));
+    }
+    return Number.isFinite(nextMs) ? nextMs : null;
   }
 
   private resolveWorld(events: GameEvent[]): void {
