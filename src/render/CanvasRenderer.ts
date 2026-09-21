@@ -215,15 +215,15 @@ export class CanvasRenderer {
 
   private guides(snapshot: GameSnapshot, time: number): void {
     const ctx = this.ctx;
-    const phaseSpeed = snapshot.cycle.phase === 'surge' ? 2.35 : snapshot.cycle.phase === 'pressure' ? 1.55 : 1;
+    const phaseSpeed = snapshot.cycle.phase === 'pressure' ? 2.35 : snapshot.cycle.phase === 'build' ? 1.55 : 1;
     const direction = snapshot.cycle.anomalies.some(({ type }) => type === 'reverse') ? -1 : 1;
-    const frameInset = snapshot.cycle.phase === 'surge' ? 8 : snapshot.cycle.phase === 'pressure' ? 3 : 0;
+    const frameInset = snapshot.cycle.phase === 'pressure' ? 8 : snapshot.cycle.phase === 'build' ? 3 : 0;
     ctx.lineWidth = 1 / this.scale;
     ctx.strokeStyle = 'rgba(141,145,140,0.075)';
     const safeRadius = (HEX_APOTHEM + MAX_STACK_DEPTH * BLOCK_DEPTH - frameInset) / Math.cos(Math.PI / 6);
     this.path(hexPoints(ORIGIN, safeRadius, -TURN)); ctx.stroke();
     ctx.save();
-    if (snapshot.cycle.phase === 'surge') ctx.scale(SURGE_GUIDE_SCALE, SURGE_GUIDE_SCALE);
+    if (snapshot.cycle.phase === 'pressure') ctx.scale(SURGE_GUIDE_SCALE, SURGE_GUIDE_SCALE);
     ctx.rotate(this.finite(time) * 0.000006 * phaseSpeed * direction);
     this.path(hexPoints(ORIGIN, 510, -TURN)); ctx.stroke();
     ctx.strokeStyle = 'rgba(141,145,140,0.045)';

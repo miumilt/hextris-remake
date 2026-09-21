@@ -9,7 +9,7 @@ import {
 } from './constants';
 import { HexGrid } from './HexGrid';
 import { BonusSystem } from './BonusSystem';
-import { CycleDirector, type CycleDirectorOptions } from './CycleDirector';
+import { ThreatDirector, type ThreatDirectorOptions } from './ThreatDirector';
 import { resolveAllMatches } from './MatchResolver';
 import { SeededRandom } from './random';
 import type {
@@ -34,7 +34,9 @@ export interface GameEngineOptions {
   readonly randomSeed?: number;
   readonly maxStackDepth?: number;
   readonly spawning?: boolean;
-  readonly cycle?: CycleDirectorOptions;
+  readonly director?: ThreatDirectorOptions;
+  /** @deprecated Use director. This compatibility alias is removed in Task 3. */
+  readonly cycle?: ThreatDirectorOptions;
 }
 
 export interface DebugPlacement {
@@ -58,7 +60,7 @@ export class GameEngine {
   private falling: FallingBlock[] = [];
   private spawner: WaveSpawner;
   private anomalyRandom: SeededRandom;
-  private director: CycleDirector;
+  private director: ThreatDirector;
   private bonuses: BonusSystem;
   private upgrades: UpgradeSystem;
   private fallingBonuses: FallingBonus[] = [];
@@ -72,17 +74,17 @@ export class GameEngine {
   private readonly randomSeed: number;
   private readonly maxStackDepth: number;
   private readonly spawning: boolean;
-  private readonly cycleOptions: CycleDirectorOptions;
+  private readonly directorOptions: ThreatDirectorOptions;
 
   public constructor(options: GameEngineOptions = {}) {
     this.randomSeed = options.randomSeed ?? 1;
     this.maxStackDepth = options.maxStackDepth ?? MAX_STACK_DEPTH;
     this.spawning = options.spawning ?? true;
-    this.cycleOptions = options.cycle ?? {};
+    this.directorOptions = options.director ?? options.cycle ?? {};
     this.grid = new HexGrid(this.maxStackDepth);
     this.spawner = new WaveSpawner(new SeededRandom(this.randomSeed));
     this.anomalyRandom = new SeededRandom(this.randomSeed ^ 0x414e4f4d);
-    this.director = new CycleDirector(new SeededRandom(this.randomSeed ^ 0x4359434c), this.cycleOptions);
+    this.director = new ThreatDirector(new SeededRandom(this.randomSeed ^ 0x4359434c), this.directorOptions);
     this.bonuses = new BonusSystem(new SeededRandom(this.randomSeed ^ 0x424f4e55));
     this.upgrades = new UpgradeSystem(new SeededRandom(this.randomSeed ^ 0x55504752));
   }
@@ -230,7 +232,7 @@ export class GameEngine {
     this.falling = [];
     this.spawner = new WaveSpawner(new SeededRandom(this.randomSeed));
     this.anomalyRandom = new SeededRandom(this.randomSeed ^ 0x414e4f4d);
-    this.director = new CycleDirector(new SeededRandom(this.randomSeed ^ 0x4359434c), this.cycleOptions);
+    this.director = new ThreatDirector(new SeededRandom(this.randomSeed ^ 0x4359434c), this.directorOptions);
     this.bonuses = new BonusSystem(new SeededRandom(this.randomSeed ^ 0x424f4e55));
     this.upgrades = new UpgradeSystem(new SeededRandom(this.randomSeed ^ 0x55504752));
     this.fallingBonuses = [];

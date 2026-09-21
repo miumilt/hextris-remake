@@ -8,7 +8,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
 
 function progressionInput(randomSeed = 1) {
-  const game = new GameEngine({ randomSeed, spawning: false, cycle: { flowMs: 1, pressureMs: 1, surgeMs: 1 } });
+  const game = new GameEngine({ randomSeed, spawning: false });
   game.start();
   const input = new InputController(window, (command) => game.enqueue(command), () => game.getSnapshot().mode);
   input.start();
@@ -28,7 +28,7 @@ describe('progression keyboard input', () => {
     const game = progressionInput();
     key(game, 'ArrowRight');
     expect(game.getSnapshot().orientation).toBe(5);
-    game.update(3);
+    game.update(225_000);
     expect(game.getSnapshot().mode).toBe('upgrade');
     expect(game.getSnapshot().upgrades.selectedIndex).toBe(0);
     key(game, 'ArrowRight');
@@ -39,7 +39,7 @@ describe('progression keyboard input', () => {
 
   it('transfers visible focus after an arrow changes the selected upgrade', () => {
     const game = progressionInput();
-    game.update(3);
+    game.update(225_000);
     document.body.innerHTML = '<main id="ui-root"></main>';
     const screen = new ScreenController(document.getElementById('ui-root')!);
     const presentation = new PresentationSystem().snapshot();
@@ -54,12 +54,12 @@ describe('progression keyboard input', () => {
 
   it.each([' ', 'Space', 'Enter'])(`confirms an upgrade with %s`, (button) => {
     const game = progressionInput();
-    game.update(3);
+    game.update(225_000);
     const selected = game.getSnapshot().upgrades.choices[0]!.id;
     const { event, events } = key(game, button);
     expect(event.defaultPrevented).toBe(true);
     expect(events).toContainEqual({ type: 'upgradeSelected', upgrade: selected, level: 1 });
-    expect(game.getSnapshot()).toMatchObject({ mode: 'playing', cycle: { number: 2 } });
+    expect(game.getSnapshot()).toMatchObject({ mode: 'playing', cycle: { number: 4 } });
   });
 
   it('does not map Enter while playing and keeps reverse inside the engine', () => {
@@ -75,7 +75,7 @@ describe('progression keyboard input', () => {
     const enter = key(game, 'Enter').event;
     expect(enter.defaultPrevented).toBe(false);
     expect(commands).toEqual([]);
-    game.update(55_000);
+    game.update(75_000);
     key(game, 'Enter');
     for (let attempt = 0; attempt < 30 && game.getSnapshot().cycle.warning.length === 0; attempt += 1) {
       game.update(1_000);

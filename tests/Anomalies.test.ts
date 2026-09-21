@@ -11,9 +11,7 @@ function gameFor(anomalies: readonly AnomalyType[]): GameEngine {
     cycle: { forcedAnomaliesByCycle: { 2: anomalies } },
   });
   game.start();
-  game.update(55_000);
-  game.enqueue({ type: 'confirmUpgrade' });
-  game.update(0);
+  game.update(75_000);
   expect(game.getSnapshot()).toMatchObject({ mode: 'playing', cycle: { number: 2 } });
   return game;
 }
@@ -24,13 +22,13 @@ function reachWarning(game: GameEngine): DirectorEvent[] {
     events.push(...game.update(1).filter(isDirectorEvent));
   }
   expect(events).toContainEqual(expect.objectContaining({ type: 'anomalyWarning' }));
-  expect(game.getSnapshot().cycle.warningRemainingMs).toBe(1_000);
+  expect(game.getSnapshot().cycle.warningRemainingMs).toBe(2_500);
   return events;
 }
 
 function activate(game: GameEngine): void {
   reachWarning(game);
-  expect(game.update(999)).not.toContainEqual(expect.objectContaining({ type: 'anomalyStarted' }));
+  expect(game.update(2_499)).not.toContainEqual(expect.objectContaining({ type: 'anomalyStarted' }));
   expect(game.update(1)).toContainEqual(expect.objectContaining({ type: 'anomalyStarted' }));
 }
 
@@ -43,13 +41,13 @@ function isDirectorEvent(event: GameEvent): event is DirectorEvent {
 }
 
 describe('telegraphed anomalies', () => {
-  it('keeps the warning mechanical-free for exactly 1000 ms', () => {
+  it('keeps the warning mechanical-free for exactly 2500 ms', () => {
     const game = gameFor(['reverse']);
     reachWarning(game);
     game.debugSpawn({ lane: 0, color: 'coral', speed: 100 });
     game.enqueue({ type: 'rotate', steps: 1 });
 
-    game.update(999);
+    game.update(2_499);
 
     expect(game.getSnapshot()).toMatchObject({
       orientation: 1,
@@ -220,9 +218,7 @@ describe('telegraphed anomalies', () => {
     delayed.update(180);
     expect(delayed.getSnapshot()).toMatchObject({ orientation: 0, cycle: { warning: [], anomalies: [] } });
     delayed.start();
-    delayed.update(55_000);
-    delayed.enqueue({ type: 'confirmUpgrade' });
-    delayed.update(0);
+    delayed.update(75_000);
     activate(delayed);
     delayed.enqueue({ type: 'rotate', steps: 1 });
     delayed.update(0);

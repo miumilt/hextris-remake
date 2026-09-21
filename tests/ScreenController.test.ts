@@ -84,7 +84,7 @@ describe('ScreenController', () => {
     const screen = new ScreenController(root);
     screen.render(snapshot({
       mode: 'playing', score: 81,
-      cycle: { number: 2, phase: 'pressure', elapsedMs: 8_000, durationMs: 55_000, progress: 0.4, warning: ['reverse'], warningRemainingMs: 2_000, anomalies: [] },
+      cycle: { number: 2, phase: 'pressure', elapsedMs: 8_000, totalActiveMs: 83_000, durationMs: 75_000, progress: 0.4, warning: ['reverse'], warningRemainingMs: 2_000, anomalies: [], threat: null },
       bonus: { stored: 'pulse', slowRemainingMs: 0 },
       upgrades: { levels: { stabilizer: 2, comboRelay: 0, salvage: 1, deepPulse: 0, anomalyShield: 0, lastStand: 0 }, choices: [], selectedIndex: 0 },
     }), emptyPresentation());
@@ -289,7 +289,7 @@ describe('ScreenController', () => {
     const screen = new ScreenController(root);
     const warning = snapshot({
       mode: 'playing',
-      cycle: { number: 2, phase: 'flow', elapsedMs: 24_000, durationMs: 55_000, progress: 0.44, warning: ['inertia'], warningRemainingMs: 600, anomalies: [] },
+      cycle: { number: 2, phase: 'build', elapsedMs: 24_000, totalActiveMs: 99_000, durationMs: 75_000, progress: 0.44, warning: ['inertia'], warningRemainingMs: 600, anomalies: [], threat: null },
     });
     screen.render(warning, emptyPresentation());
     const status = root.querySelector('[role="status"]');

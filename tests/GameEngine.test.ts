@@ -6,7 +6,7 @@ describe('GameEngine', () => {
     const game = new GameEngine({ randomSeed: 11 });
     game.start();
 
-    const events = game.update(2700);
+    const events = game.update(2600);
     const spawned = events.find((event) => event.type === 'blockSpawned');
 
     expect(spawned).toMatchObject({
@@ -193,8 +193,8 @@ describe('GameEngine', () => {
       stacks: [[], [], [], [], [], []],
       falling: [],
       cycle: {
-        number: 1, phase: 'flow', elapsedMs: 0, durationMs: 55_000, progress: 0,
-        warning: [], warningRemainingMs: 0, anomalies: [],
+        number: 1, phase: 'settle', elapsedMs: 0, totalActiveMs: 0, durationMs: 75_000, progress: 0,
+        warning: [], warningRemainingMs: 0, anomalies: [], threat: null,
       },
       bonus: { stored: null, slowRemainingMs: 0 },
       fallingBonuses: [],

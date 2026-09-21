@@ -272,7 +272,7 @@ describe('progression rendering', () => {
     expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.ink)).toHaveLength(1);
   });
 
-  it('reverses guide motion without changing attached stack geometry and keeps surge compression within four percent', () => {
+  it('reverses guide motion without changing attached stack geometry and keeps pressure compression within four percent', () => {
     const normalSurface = surface();
     const reverseSurface = surface();
     const attached = snapshot({
@@ -282,7 +282,7 @@ describe('progression rendering', () => {
     normalSurface.renderer.render(attached, baseEffects(), presentation(), 1);
     reverseSurface.renderer.render({
       ...attached,
-      cycle: { ...attached.cycle, phase: 'surge', anomalies: [{ type: 'reverse', remainingMs: 1_000 }] },
+      cycle: { ...attached.cycle, phase: 'pressure', anomalies: [{ type: 'reverse', remainingMs: 1_000 }] },
     }, baseEffects(), presentation(), 1);
 
     expect(normalSurface.rotations.some((angle) => angle > 0)).toBe(true);

@@ -1,7 +1,7 @@
 import type { BlockColor } from './types';
 import type { WavePattern } from './WaveSpawner';
 
-export type GamePhase = 'flow' | 'pressure' | 'surge';
+export type GamePhase = 'settle' | 'build' | 'pressure' | 'release';
 export type AnomalyType = 'reverse' | 'mirage' | 'drift' | 'colorShift' | 'inertia';
 export type BonusType = 'slow' | 'pulse' | 'cleanse' | 'colorBreak';
 export type UpgradeId = 'stabilizer' | 'comboRelay' | 'salvage' | 'deepPulse' | 'anomalyShield' | 'lastStand';
@@ -47,6 +47,25 @@ export interface WaveProfile {
   readonly forcedPatternSequence: readonly WavePattern[] | null;
 }
 
+export interface ThreatEvidence {
+  readonly seedCycle: number;
+  readonly phase: GamePhase;
+  readonly budget: number;
+  readonly spent: number;
+  readonly combinationKey: string;
+}
+
+export interface ThreatPlan {
+  readonly pattern: WavePattern;
+  readonly anchorLane: number;
+  readonly lanes: readonly number[];
+  readonly anomalies: readonly AnomalyType[];
+  readonly warningMs: number;
+  readonly entryDelayMs: number;
+  readonly bonusIncompatible: boolean;
+  readonly evidence: ThreatEvidence;
+}
+
 export type DirectorEvent =
   | { readonly type: 'phaseChanged'; readonly phase: GamePhase; readonly cycle: number }
   | { readonly type: 'anomalyWarning'; readonly anomalies: readonly AnomalyType[] }
@@ -70,11 +89,13 @@ export interface CycleSnapshot {
   readonly number: number;
   readonly phase: GamePhase;
   readonly elapsedMs: number;
-  readonly durationMs: 55_000;
+  readonly totalActiveMs: number;
+  readonly durationMs: 75_000;
   readonly progress: number;
   readonly warning: readonly AnomalyType[];
   readonly warningRemainingMs: number;
   readonly anomalies: readonly ActiveAnomaly[];
+  readonly threat: ThreatPlan | null;
 }
 
 export interface BonusRemoval {

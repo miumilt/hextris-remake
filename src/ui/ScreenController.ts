@@ -19,7 +19,7 @@ const button = (action: string, label: string, primary = false): string =>
 const ANOMALY_LABELS: Readonly<Record<AnomalyType, string>> = {
   reverse: 'РЕВЕРС', mirage: 'МИРАЖ', drift: 'ДРЕЙФ', colorShift: 'СМЕНА ЦВЕТА', inertia: 'ИНЕРЦИЯ',
 };
-const PHASE_LABELS = { flow: 'ПОТОК', pressure: 'ДАВЛЕНИЕ', surge: 'ШТУРМ' } as const;
+const PHASE_LABELS = { settle: 'СБОР', build: 'РОСТ', pressure: 'ДАВЛЕНИЕ', release: 'РАЗРЯДКА' } as const;
 const UPGRADE_LABELS: Readonly<Record<UpgradeId, string>> = {
   stabilizer: 'СТАБИЛИЗАТОР',
   comboRelay: 'РЕЛЕ КОМБО',
