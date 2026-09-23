@@ -77,6 +77,19 @@ const center = (polygon: RecordedPolygon): readonly [number, number] => polygon.
 const plates = (polygons: readonly RecordedPolygon[]) => polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object');
 
 describe('progression rendering', () => {
+  it('marks only deterministic preview lanes with an assertive matte opening guide', () => {
+    const { renderer, strokes } = surface();
+    const timeline = new PresentationSystem();
+    timeline.beginRun([1, 2]);
+    timeline.update(400, 'playing');
+    const current = snapshot({ opening: { remainingMs: 800, previewLanes: [1, 2] } });
+    renderer.render(current, baseEffects(), timeline.snapshot(), 0);
+    expect(strokes.filter(({ style, alpha }) => style === VISUAL_COLORS.amber && alpha > 0.22).length).toBeGreaterThanOrEqual(2);
+    strokes.length = 0;
+    renderer.render({ ...current, opening: { remainingMs: 800, previewLanes: [] } },
+      baseEffects(), timeline.snapshot(), 0);
+    expect(strokes.filter(({ style }) => style === VISUAL_COLORS.amber)).toHaveLength(0);
+  });
   it('curves a drifting plate and its trail toward the announced destination lane', () => {
     const { renderer, polygons } = surface();
     const drifting = snapshot({
@@ -111,6 +124,8 @@ describe('progression rendering', () => {
       const [x] = center(polygon);
       return polygon.points.length >= 3 && x > 100 && polygon.alpha > 0.1 && polygon.alpha < 0.5;
     })).toBe(true);
+    expect(polygons.some(({ points, alpha }) => points.length === 4 && alpha === 0.86)).toBe(true);
+    expect(polygons.some(({ points, alpha }) => points.length >= 3 && alpha === 0.42)).toBe(true);
 
     polygons.length = 0;
     renderer.render({
@@ -133,7 +148,7 @@ describe('progression rendering', () => {
       }],
     }), baseEffects(), presentation(), 1);
 
-    expect(polygons.some(({ style, points }) => style === VISUAL_COLORS.sky && points.length >= 3)).toBe(true);
+    expect(polygons.some(({ style, points }) => style === VISUAL_COLORS.sky && points.length === 6)).toBe(true);
     expect(plates(polygons)).toHaveLength(1);
   });
 
@@ -148,7 +163,7 @@ describe('progression rendering', () => {
     expect(text).toContainEqual(expect.objectContaining({ value: 'ЦВЕТОВОЙ ВЗРЫВ' }));
     const token = polygons.find(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.coral)!;
     const [tokenX, tokenY] = center(token);
-    expect(Math.max(...token.points.map(([x, y]) => Math.hypot(x - tokenX, y - tokenY)))).toBeGreaterThan(22);
+    expect(Math.max(...token.points.map(([x, y]) => Math.hypot(x - tokenX, y - tokenY)))).toBeGreaterThan(31);
   });
 
   it('assembles a newly spawned block from a scaled faceted silhouette', () => {
@@ -181,6 +196,21 @@ describe('progression rendering', () => {
     expect(polygons.some(({ points }) => points.length >= 3 && points.length <= 5)).toBe(true);
   });
 
+  it('reveals PULSE rings at 0, 42, and 84 ms without duplicate contours', () => {
+    const { renderer, strokes } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'bonusActivated', bonus: 'pulse' }]);
+    const count = () => {
+      strokes.length = 0;
+      renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+      return strokes.filter(({ style, points }) => style === VISUAL_COLORS.ink && points.length === 6).length;
+    };
+    expect(count()).toBe(1);
+    fx.update(41); expect(count()).toBe(1);
+    fx.update(1); expect(count()).toBe(2);
+    fx.update(42); expect(count()).toBe(3);
+  });
+
   it('draws a cool multi-ring wave for slow without creating fragments', () => {
     const { renderer, strokes } = surface();
     const fx = new EffectsSystem({ random: () => 0.5 });
@@ -190,8 +220,7 @@ describe('progression rendering', () => {
     renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
 
     expect(fx.snapshot().fragments).toEqual([]);
-    expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.sky).length)
-      .toBeGreaterThanOrEqual(2);
+    expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.sky)).toHaveLength(1);
   });
 
   it('sweeps a narrow cleanse cut across the removed side', () => {
@@ -214,6 +243,18 @@ describe('progression rendering', () => {
       if (!first || !second) return false;
       return Math.hypot(second[0] - first[0], second[1] - first[1]) >= 24;
     })).toBe(true);
+  });
+
+  it('locates a cleanse cut from the selected side even without fragments', () => {
+    const { renderer, strokes } = surface();
+    const base = baseEffects();
+    renderer.render(snapshot(), {
+      ...base,
+      bonusImpact: { bonus: 'cleanse', removedCount: 1, ageMs: 110, lifetimeMs: 620,
+        targetSide: 3, cutCells: [{ side: 3, index: 2 }], removedColors: ['teal'] },
+    }, presentation(), 0);
+    expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.ink && points.length === 2
+      && points[0]![1] > 0 && points[1]![1] > 0)).toBe(true);
   });
 
   it('flashes every color-break source plate together before release', () => {
@@ -253,6 +294,87 @@ describe('progression rendering', () => {
     expect(text).toContainEqual(expect.objectContaining({ value: '⌁' }));
   });
 
+  it('keeps the transfer at its origin through 90 ms and retires after 800 ms of flight', () => {
+    const { renderer, text } = surface();
+    const baseline = presentation();
+    const drawAt = (ageMs: number) => {
+      text.length = 0;
+      renderer.render(snapshot(), baseEffects(), {
+        ...baseline,
+        transfer: { bonus: 'pulse', lane: 2, distance: 180, delayMs: 90, lifetimeMs: 800, ageMs },
+      }, 0);
+      return text.filter(({ value }) => value === '⌁');
+    };
+    expect(drawAt(89)).toHaveLength(1);
+    expect(drawAt(89)[0]!.x).toBeCloseTo(Math.cos(Math.PI / 6) * 180);
+    expect(drawAt(90)).toHaveLength(1);
+    expect(drawAt(889)).toHaveLength(1);
+    expect(drawAt(890)).toHaveLength(0);
+  });
+
+  it('shows the outgoing replacement glyph without delaying the incoming transfer', () => {
+    const { renderer, text } = surface();
+    renderer.render(snapshot(), baseEffects(), {
+      ...presentation(), replacedBonus: 'slow', slotAttentionRemainingMs: 2_300,
+      transfer: { bonus: 'pulse', lane: 2, distance: 180, ageMs: 200, delayMs: 90, lifetimeMs: 800 },
+    }, 0);
+    expect(text.map(({ value }) => value)).toContain('Ⅱ');
+    expect(text.map(({ value }) => value)).toContain('⌁');
+  });
+
+  it('does not draw delayed shockwaves before their own delay', () => {
+    const { renderer, strokes } = surface();
+    const base = baseEffects();
+    const delayed = (ageMs: number): EffectsSnapshot => ({
+      ...base,
+      shockwaves: [{ kind: 'collection', x: 0, y: -72, color: 'ivory', ageMs,
+        delayMs: 90, lifetimeMs: 400, intensity: 1 }],
+    });
+    renderer.render(snapshot(), base, presentation(), 0);
+    const baselineCount = strokes.filter(({ style }) => style === VISUAL_COLORS.ink).length;
+    renderer.render(snapshot(), delayed(89), presentation(), 0);
+    const before = strokes.filter(({ style }) => style === VISUAL_COLORS.ink).length;
+    expect(before).toBe(baselineCount);
+    renderer.render(snapshot(), delayed(90), presentation(), 0);
+    expect(strokes.filter(({ style }) => style === VISUAL_COLORS.ink)).toHaveLength(before + 1);
+  });
+
+  it('draws local anticipation and landing response without altering effect time', () => {
+    const { renderer, strokes, polygons } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'blockLanded', cell: { side: 0, index: 0 }, block: { id: 33, color: 'teal' } }]);
+    const immutable = fx.snapshot();
+    const before = JSON.stringify(immutable);
+    renderer.render(snapshot(), immutable, presentation(), 0);
+    expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.ink && points.length >= 2)).toBe(true);
+    expect(strokes.some(({ style }) => style === VISUAL_COLORS.coral)).toBe(false);
+    expect(polygons.some(({ style, alpha }) => style === VISUAL_COLORS.teal && alpha > 0 && alpha < 1)).toBe(true);
+    expect(JSON.stringify(immutable)).toBe(before);
+  });
+
+  it('keeps a reverse anomaly direction cue attached to its lane after the event cue expires', () => {
+    const { renderer, strokes } = surface();
+    const current = snapshot();
+    renderer.render({ ...current, cycle: {
+      ...current.cycle, warning: [], warningRemainingMs: 0,
+      anomalies: [{ type: 'reverse', remainingMs: 3_000 }],
+      threat: { pattern: 'pair', anchorLane: 2, lanes: [2], anomalies: ['reverse'], warningMs: 2_500,
+        entryDelayMs: 0, bonusIncompatible: false,
+        evidence: { seedCycle: 1, phase: 'build', budget: 1, spent: 1, combinationKey: 'reverse' } },
+    } }, baseEffects(), presentation(), 0);
+    expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.amber && points.length >= 2)).toBe(true);
+  });
+
+  it('joins a double anomaly into one side-attached rule', () => {
+    const { renderer, strokes } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'anomalyWarning', anomalies: ['reverse', 'mirage'], lanes: [2],
+      warningMs: 3_200, atActiveMs: 0 }]);
+    renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+    expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.amber
+      && points.length === 2 && Math.hypot(points[0]![0] - points[1]![0], points[0]![1] - points[1]![1]) >= 50)).toBe(true);
+  });
+
   it('keeps reduced motion free of transforms and fragments while retaining a local contour', () => {
     const { renderer, scales, polygons, strokes } = surface();
     const block = { id: 13, color: 'sky' as const, lane: 0, distance: 420, speed: 0 };
@@ -271,7 +393,7 @@ describe('progression rendering', () => {
 
     expect(scales.some(([x, y]) => Math.abs(x - 0.72) < 0.01 && Math.abs(y - 0.72) < 0.01)).toBe(false);
     expect(polygons.filter(({ points }) => points.length === 3 || points.length === 5)).toHaveLength(0);
-    expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.ink)).toHaveLength(2);
+    expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.ink)).toHaveLength(1);
   });
 
   it('reverses guide motion without changing attached stack geometry and keeps pressure compression within four percent', () => {
@@ -291,6 +413,20 @@ describe('progression rendering', () => {
     expect(reverseSurface.rotations.some((angle) => angle < 0)).toBe(true);
     expect(center(plates(reverseSurface.polygons)[0]!)).toEqual(center(plates(normalSurface.polygons)[0]!));
     expect(reverseSurface.scales.some(([x, y]) => x === y && x >= 0.96 && x < 1)).toBe(true);
+  });
+
+  it('gives Pressure denser restrained guides than Release', () => {
+    const pressure = surface();
+    const release = surface();
+    const current = snapshot();
+    pressure.renderer.render({ ...current, cycle: { ...current.cycle, phase: 'pressure' } },
+      baseEffects(), presentation(), 0);
+    release.renderer.render({ ...current, cycle: { ...current.cycle, phase: 'release' } },
+      baseEffects(), presentation(), 0);
+    const guides = (strokes: readonly RecordedStroke[]) => strokes.filter(({ style }) =>
+      typeof style === 'string' && style.startsWith('rgba(141,145,140'));
+    expect(guides(pressure.strokes).length).toBeGreaterThan(guides(release.strokes).length);
+    expect(guides(pressure.strokes).every(({ style }) => Number((style as string).split(',').at(-1)!.replace(')', '')) <= 0.22)).toBe(true);
   });
 
   it('draws shockwaves in the shaken world but labels and flashes in stable screen space', () => {

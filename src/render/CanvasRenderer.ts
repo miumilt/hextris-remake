@@ -11,8 +11,8 @@ import {
 import type { FallingBonus } from '../game/progressionTypes';
 import type { BlockColor, FallingBlock, GameSnapshot } from '../game/types';
 import { getBonusPresentation } from '../presentation/bonusPresentation';
-import type { PresentationSnapshot } from '../presentation/PresentationSystem';
-import type { EffectsSnapshot } from './EffectsSystem';
+import type { OpeningPresentation, OpeningStage, PresentationSnapshot } from '../presentation/PresentationSystem';
+import type { AnomalyCue, EffectsSnapshot } from './EffectsSystem';
 import { blockQuad, hexPoints, type Point } from './geometry';
 
 const ORIGIN = { x: 0, y: 0 };
@@ -28,6 +28,11 @@ const ease = (t: number): number => {
 };
 
 interface PlateMotion { from: number; to: number; startedAt: number; }
+export type RenderLayer = 'background' | 'guides' | 'field' | 'falling' | 'world-effects' | 'screen-effects';
+export interface CanvasRendererOptions {
+  readonly onLayer?: (layer: RenderLayer) => void;
+  readonly onOpeningStage?: (stage: OpeningStage) => void;
+}
 
 /** Canvas owns visual time and transitions; snapshots are never changed. */
 export class CanvasRenderer {
@@ -45,7 +50,7 @@ export class CanvasRenderer {
   private readonly seenPlates = new Set<number>();
   private readonly grain = new Float32Array(1800);
 
-  public constructor(private readonly canvas: HTMLCanvasElement) {
+  public constructor(private readonly canvas: HTMLCanvasElement, private readonly options: CanvasRendererOptions = {}) {
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas 2D is unavailable');
     this.ctx = context;
@@ -101,49 +106,55 @@ export class CanvasRenderer {
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.globalAlpha = 1;
-    this.background();
+    this.layer('background', () => this.background());
     ctx.save();
     ctx.translate(this.width / 2, this.height / 2);
     ctx.scale(this.scale, this.scale);
     const shake = effects.shake.magnitude;
     ctx.translate(Math.sin(effects.shake.remainingMs * 0.31) * shake, Math.cos(effects.shake.remainingMs * 0.43) * shake * 0.6);
     // The menu has visual motion even while engine elapsed time is zero.
-    this.guides(presented, presented.mode === 'menu' ? performance.now() : time);
-
-    const slowActive = presented.bonus.slowRemainingMs > 0 || effects.bonusImpact?.bonus === 'slow';
-    for (const block of presented.falling) {
-      const distance = this.fallingDistance(block, presented.mode, presentedFraction);
-      this.trail(block, distance, slowActive);
-    }
-
-    if (presented.mode === 'menu') {
-      // A decorative arrangement, independent of the actual grid and spawning.
-      ctx.save();
-      ctx.scale(MENU_FIELD_SCALE, MENU_FIELD_SCALE);
-      const angle = Math.sin(performance.now() / 11000) * 0.07;
-      this.hex(angle);
-      for (let side = 0; side < 6; side += 1) {
-        const count = [2, 1, 3, 2, 1, 2][side]!;
-        for (let depth = 0; depth < count; depth += 1) {
-          this.plate(-Math.PI / 2 + side * TURN + angle, HEX_APOTHEM + depth * BLOCK_DEPTH, BLOCK_COLORS[(side + depth) % 4]!);
+    this.layer('guides', () => {
+      this.guides(presented, presented.mode === 'menu' ? performance.now() : time);
+      this.openingGuides(presented, presentation.opening, effects.reducedMotion);
+    });
+    this.layer('field', () => {
+      if (presented.mode === 'menu') {
+        // A decorative arrangement, independent of the actual grid and spawning.
+        ctx.save();
+        ctx.scale(MENU_FIELD_SCALE, MENU_FIELD_SCALE);
+        const angle = Math.sin(performance.now() / 11000) * 0.07;
+        this.hex(angle);
+        for (let side = 0; side < 6; side += 1) {
+          const count = [2, 1, 3, 2, 1, 2][side]!;
+          for (let depth = 0; depth < count; depth += 1) {
+            this.plate(-Math.PI / 2 + side * TURN + angle, HEX_APOTHEM + depth * BLOCK_DEPTH, BLOCK_COLORS[(side + depth) % 4]!);
+          }
+        }
+        ctx.restore();
+      } else {
+        this.openingHub(presentation.opening, effects.reducedMotion, () => this.hex(-orientation * TURN));
+        for (let side = 0; side < presented.stacks.length; side += 1) {
+          for (const block of presented.stacks[side]!) {
+            const motion = this.plates.get(block.id)!;
+            const distance = motion.from + (motion.to - motion.from) * ease((time - motion.startedAt) / COLLAPSE_MS);
+            this.plate(-Math.PI / 2 + (side - orientation) * TURN, distance, block.color);
+          }
         }
       }
-      ctx.restore();
-    } else {
-      this.hex(-orientation * TURN);
-      for (let side = 0; side < presented.stacks.length; side += 1) {
-        for (const block of presented.stacks[side]!) {
-          const motion = this.plates.get(block.id)!;
-          const distance = motion.from + (motion.to - motion.from) * ease((time - motion.startedAt) / COLLAPSE_MS);
-          this.plate(-Math.PI / 2 + (side - orientation) * TURN, distance, block.color);
-        }
-      }
+    });
+    this.layer('falling', () => {
+      const slowActive = !effects.reducedMotion && (effects.slowTrailRemainingMs > 0 || presented.bonus.slowRemainingMs > 0);
       for (const block of presented.falling) {
         const distance = this.fallingDistance(block, presented.mode, presentedFraction);
+        this.trail(block, distance, slowActive);
         const angle = this.fallingAngle(block);
         const assembly = effects.assemblies.find(({ blockId }) => blockId === block.id);
         if (assembly) this.assemblingPlate(angle, distance, block.color, assembly.ageMs / assembly.lifetimeMs);
-        else this.plate(angle, distance, block.color);
+        else if (block.mirageVisible) {
+          ctx.save(); ctx.globalAlpha = 0.86;
+          this.plate(angle, distance, block.color);
+          ctx.restore();
+        } else this.plate(angle, distance, block.color);
         if (
           block.shiftToColor !== undefined
           && block.shiftAtDistance !== undefined
@@ -153,13 +164,24 @@ export class CanvasRenderer {
           this.miragePlate(this.laneAngle(block.mirageLane), distance, block.color);
         }
       }
-      for (const bonus of presented.fallingBonuses) this.bonusToken(bonus, presented.mode, presentedFraction);
-    }
-    this.worldEffects(effects);
-    this.bonusTransfer(presentation, effects.reducedMotion);
+      for (const bonus of presented.fallingBonuses) this.bonusToken(bonus, presented.mode, presentedFraction, time);
+    });
+    this.layer('world-effects', () => {
+      this.worldEffects(effects, presented);
+      this.bonusTransfer(presentation, effects.reducedMotion);
+      this.replacementGhost(presentation, effects.reducedMotion);
+    });
     ctx.restore();
-    this.screenEffects(effects);
-    this.combo(effects);
+    this.layer('screen-effects', () => {
+      this.openingReady(presentation.opening);
+      this.screenEffects(effects);
+      this.combo(effects);
+    });
+  }
+
+  private layer(name: RenderLayer, draw: () => void): void {
+    this.options.onLayer?.(name);
+    draw();
   }
 
   private syncMotion(snapshot: GameSnapshot, time: number): void {
@@ -215,7 +237,8 @@ export class CanvasRenderer {
 
   private guides(snapshot: GameSnapshot, time: number): void {
     const ctx = this.ctx;
-    const phaseSpeed = snapshot.cycle.phase === 'pressure' ? 2.35 : snapshot.cycle.phase === 'build' ? 1.55 : 1;
+    const phaseSpeed = snapshot.cycle.phase === 'pressure' ? 1.25
+      : snapshot.cycle.phase === 'build' ? 1 : snapshot.cycle.phase === 'release' ? 0.55 : 0.75;
     const direction = snapshot.cycle.anomalies.some(({ type }) => type === 'reverse') ? -1 : 1;
     const frameInset = snapshot.cycle.phase === 'pressure' ? 8 : snapshot.cycle.phase === 'build' ? 3 : 0;
     ctx.lineWidth = 1 / this.scale;
@@ -229,9 +252,11 @@ export class CanvasRenderer {
     ctx.strokeStyle = 'rgba(141,145,140,0.045)';
     this.path(hexPoints(ORIGIN, 575, -TURN + 0.13)); ctx.stroke();
     ctx.restore();
-    ctx.strokeStyle = 'rgba(141,145,140,0.10)';
-    for (let lane = 0; lane < 6; lane += 1) {
-      const angle = -Math.PI / 2 + lane * TURN;
+    ctx.strokeStyle = `rgba(141,145,140,${Math.min(0.16, 0.1 * phaseSpeed)})`;
+    const tickCount = snapshot.cycle.phase === 'pressure' ? 8
+      : snapshot.cycle.phase === 'build' ? 6 : snapshot.cycle.phase === 'release' ? 3 : 5;
+    for (let lane = 0; lane < tickCount; lane += 1) {
+      const angle = -Math.PI / 2 + lane * Math.PI * 2 / tickCount;
       ctx.beginPath();
       ctx.moveTo(Math.cos(angle) * 415, Math.sin(angle) * 415);
       ctx.lineTo(Math.cos(angle) * 438, Math.sin(angle) * 438);
@@ -285,6 +310,89 @@ export class CanvasRenderer {
     ctx.strokeStyle = 'rgba(255,250,236,0.30)'; ctx.lineWidth = 1 / this.scale; ctx.stroke();
     ctx.beginPath(); ctx.moveTo(points[2]!.x, points[2]!.y); ctx.lineTo(points[3]!.x, points[3]!.y);
     ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 2 / this.scale; ctx.stroke();
+  }
+
+  private openingGuides(snapshot: GameSnapshot, opening: OpeningPresentation | null | undefined, reducedMotion: boolean): void {
+    if (!opening || snapshot.opening.remainingMs <= 0 || snapshot.mode !== 'playing') return;
+    this.options.onOpeningStage?.(opening.stage);
+    if (opening.stage === 'assemble') return;
+    const ctx = this.ctx;
+    const progress = reducedMotion ? 1 : ease((opening.ageMs - 320) / 440);
+    for (const lane of snapshot.opening.previewLanes) {
+      const angle = this.laneAngle(lane);
+      const outer = 345 + (1 - progress) * 75;
+      ctx.save();
+      ctx.globalAlpha = 0.36 + progress * 0.18;
+      ctx.strokeStyle = VISUAL_COLORS.amber;
+      ctx.lineWidth = 2.2 / this.scale;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * outer, Math.sin(angle) * outer);
+      ctx.lineTo(Math.cos(angle) * 160, Math.sin(angle) * 160);
+      ctx.stroke();
+      ctx.globalAlpha = 0.27 + progress * 0.1;
+      ctx.strokeStyle = VISUAL_COLORS.ink;
+      ctx.lineWidth = 1 / this.scale;
+      const railAngle = angle + 0.04;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(railAngle) * (outer - 18), Math.sin(railAngle) * (outer - 18));
+      ctx.lineTo(Math.cos(railAngle) * 174, Math.sin(railAngle) * 174);
+      ctx.stroke();
+      const tip = { x: Math.cos(angle) * 160, y: Math.sin(angle) * 160 };
+      ctx.globalAlpha = 0.72;
+      ctx.fillStyle = VISUAL_COLORS.amber;
+      this.path(hexPoints(tip, 4.5, angle));
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  private openingHub(opening: OpeningPresentation | null | undefined, reducedMotion: boolean, draw: () => void): void {
+    if (!opening || opening.stage !== 'assemble') { draw(); return; }
+    const ctx = this.ctx;
+    const progress = ease(opening.ageMs / (reducedMotion ? 140 : 320));
+    const scale = reducedMotion ? 1 : progress < 0.75
+      ? 1 + (118 / (HEX_APOTHEM / Math.cos(Math.PI / 6)) - 1.04) * (1 - progress / 0.75)
+      : 0.96 + 0.04 * ease((progress - 0.75) / 0.25);
+    ctx.save();
+    ctx.globalAlpha = reducedMotion ? Math.min(1, opening.ageMs / 140) : 1;
+    ctx.scale(scale, scale);
+    draw();
+    const vertices = hexPoints(ORIGIN, HEX_APOTHEM / Math.cos(Math.PI / 6), -TURN);
+    for (let facet = 0; facet < 6; facet += 1) {
+      const first = vertices[facet]!;
+      const next = vertices[(facet + 1) % 6]!;
+      ctx.save();
+      ctx.translate((first.x + next.x) * 0.5 * (1 - progress) * 0.3,
+        (first.y + next.y) * 0.5 * (1 - progress) * 0.3);
+      ctx.globalAlpha = (reducedMotion ? Math.min(1, opening.ageMs / 140) : 1) * (1 - progress) * 0.9;
+      ctx.fillStyle = facet % 2 === 0 ? VISUAL_COLORS.hexTop : VISUAL_COLORS.hexBottom;
+      this.path([ORIGIN, first, next]);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  private openingReady(opening: OpeningPresentation | null | undefined): void {
+    if (!opening || opening.stage !== 'ready') return;
+    const remaining = Math.min(1, (1200 - opening.ageMs) / 240);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, remaining * 0.85);
+    ctx.fillStyle = VISUAL_COLORS.ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 28px Arial, sans-serif';
+    ctx.strokeStyle = VISUAL_COLORS.amber;
+    ctx.lineWidth = 1.5;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(this.width / 2 + side * 52, this.height / 2 + 23);
+      ctx.lineTo(this.width / 2 + side * 20, this.height / 2 + 23);
+      ctx.stroke();
+    }
+    ctx.fillText('ГОТОВ', this.width / 2, this.height / 2);
+    ctx.restore();
   }
 
   private assemblingPlate(angle: number, distance: number, color: BlockColor, rawProgress: number): void {
@@ -382,10 +490,18 @@ export class CanvasRenderer {
     const middleFar = this.midpoint(points[3]!, points[2]!);
     ctx.save();
     ctx.fillStyle = VISUAL_COLORS[color];
-    ctx.globalAlpha = 0.28;
+    ctx.globalAlpha = 0.42;
     this.path([points[0]!, middleNear, middleFar, points[3]!]); ctx.fill();
-    ctx.globalAlpha = 0.18;
+    ctx.globalAlpha = 0.42;
     this.path([middleNear, points[1]!, points[2]!, middleFar]); ctx.fill();
+    ctx.setLineDash([5, 7]);
+    ctx.strokeStyle = VISUAL_COLORS[color];
+    ctx.lineWidth = 1 / this.scale;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * (distance + 70), Math.sin(angle) * (distance + 70));
+    ctx.lineTo(Math.cos(angle) * (distance + 12), Math.sin(angle) * (distance + 12));
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
     ctx.globalAlpha = 1;
   }
@@ -393,17 +509,17 @@ export class CanvasRenderer {
   private colorFacet(angle: number, distance: number, color: BlockColor): void {
     const ctx = this.ctx;
     const points = blockQuad(ORIGIN, angle, distance + 2, BLOCK_DEPTH - 4);
-    const inner = this.midpoint(points[0]!, points[3]!);
+    const center = points.reduce((point, vertex) => ({ x: point.x + vertex.x / 4, y: point.y + vertex.y / 4 }), { x: 0, y: 0 });
     ctx.save();
-    ctx.globalAlpha = 0.82;
-    this.path([points[0]!, points[1]!, inner]);
+    ctx.globalAlpha = 0.86;
+    this.path(hexPoints(center, BLOCK_DEPTH * 0.35, angle + Math.PI / 6));
     ctx.fillStyle = VISUAL_COLORS[color];
     ctx.fill();
     ctx.restore();
     ctx.globalAlpha = 1;
   }
 
-  private bonusToken(bonus: FallingBonus, mode: GameSnapshot['mode'], fraction: number): void {
+  private bonusToken(bonus: FallingBonus, mode: GameSnapshot['mode'], fraction: number, time: number): void {
     const ctx = this.ctx;
     const presentation = getBonusPresentation(bonus.type);
     const distance = this.finite(bonus.distance, START_DISTANCE)
@@ -412,10 +528,16 @@ export class CanvasRenderer {
     const point = { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance };
     const rotation = angle + Math.PI / 6;
     ctx.save();
-    this.path(hexPoints({ x: point.x, y: point.y + 4 }, 30, rotation));
+    this.path(hexPoints({ x: point.x, y: point.y + 4 }, 35, rotation));
     ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.fill();
-    this.path(hexPoints(point, 28, rotation));
-    ctx.fillStyle = VISUAL_COLORS[presentation.tone]; ctx.fill();
+    this.path(hexPoints(point, 32.4, rotation));
+    ctx.fillStyle = this.bonusTone(presentation.tone); ctx.fill();
+    ctx.globalAlpha = 0.34;
+    this.path(hexPoints(point, 39, rotation + this.finite(time) * 0.00013));
+    ctx.strokeStyle = this.bonusTone(presentation.tone);
+    ctx.lineWidth = 1 / this.scale;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
     this.path(hexPoints(point, 20, rotation));
     ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill();
     this.path(hexPoints(point, 13, rotation));
@@ -435,7 +557,7 @@ export class CanvasRenderer {
     ctx.fillStyle = VISUAL_COLORS.background;
     ctx.fillRect(labelPoint.x - labelWidth / 2, labelPoint.y - 9, labelWidth, 18);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = VISUAL_COLORS[presentation.tone];
+    ctx.fillStyle = this.bonusTone(presentation.tone);
     ctx.font = '800 11px Arial, sans-serif';
     ctx.fillText(presentation.label, labelPoint.x, labelPoint.y + 0.5);
     ctx.restore();
@@ -443,9 +565,9 @@ export class CanvasRenderer {
 
   private bonusTransfer(presentation: PresentationSnapshot, reducedMotion: boolean): void {
     const transfer = presentation.transfer;
-    if (transfer === null || transfer.ageMs < 240 || transfer.ageMs >= transfer.lifetimeMs) return;
+    if (transfer === null || transfer.ageMs >= transfer.delayMs + transfer.lifetimeMs) return;
     const ctx = this.ctx;
-    const progress = ease((transfer.ageMs - 240) / (transfer.lifetimeMs - 240));
+    const progress = ease((transfer.ageMs - transfer.delayMs) / transfer.lifetimeMs);
     const angle = this.laneAngle(transfer.lane);
     const start = {
       x: Math.cos(angle) * transfer.distance,
@@ -459,15 +581,16 @@ export class CanvasRenderer {
       x: (start.x + end.x) / 2 - 54,
       y: Math.min(start.y, end.y) - 92,
     };
-    const motionProgress = reducedMotion ? 1 : progress;
+    const overshoot = progress > 0.8 ? Math.sin(Math.PI * (progress - 0.8) / 0.2) * 0.06 : 0;
+    const motionProgress = reducedMotion ? 1 : Math.max(0, progress + overshoot);
     const inverse = 1 - motionProgress;
     const point = {
       x: inverse * inverse * start.x + 2 * inverse * motionProgress * middle.x + motionProgress * motionProgress * end.x,
       y: inverse * inverse * start.y + 2 * inverse * motionProgress * middle.y + motionProgress * motionProgress * end.y,
     };
-    const fadeOut = transfer.ageMs > transfer.lifetimeMs - 120
-      ? (transfer.lifetimeMs - transfer.ageMs) / 120 : 1;
-    const fadeIn = reducedMotion ? Math.min(1, (transfer.ageMs - 240) / 80) : 1;
+    const finalAge = transfer.delayMs + transfer.lifetimeMs;
+    const fadeOut = transfer.ageMs > finalAge - 120 ? (finalAge - transfer.ageMs) / 120 : 1;
+    const fadeIn = reducedMotion ? Math.min(1, Math.max(0, (transfer.ageMs - transfer.delayMs) / 140)) : 1;
     const bonus = getBonusPresentation(transfer.bonus);
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, fadeIn * fadeOut));
@@ -482,15 +605,44 @@ export class CanvasRenderer {
     ctx.globalAlpha = 1;
   }
 
-  private bonusImpact(effects: EffectsSnapshot): void {
+  private replacementGhost(presentation: PresentationSnapshot, reducedMotion: boolean): void {
+    if (presentation.replacedBonus === null) return;
+    const progress = Math.max(0, Math.min(1, (2500 - presentation.slotAttentionRemainingMs) / 800));
+    const point = {
+      x: (this.width - 144 - this.width / 2) / this.scale + (reducedMotion ? 0 : progress * 44),
+      y: (this.height - 66 - this.height / 2) / this.scale - (reducedMotion ? 0 : progress * 32),
+    };
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalAlpha = 0.72 * (1 - progress);
+    ctx.translate(point.x, point.y);
+    if (!reducedMotion) ctx.rotate(progress * 0.42);
+    ctx.fillStyle = this.bonusTone(getBonusPresentation(presentation.replacedBonus).tone);
+    ctx.font = '700 13px Arial, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(getBonusPresentation(presentation.replacedBonus).glyph, 0, 0);
+    ctx.restore();
+  }
+
+  private bonusTone(tone: string): string {
+    return tone === 'ivory' ? VISUAL_COLORS.ink
+      : Object.prototype.hasOwnProperty.call(VISUAL_COLORS, tone)
+        ? VISUAL_COLORS[tone as keyof typeof VISUAL_COLORS]
+        : VISUAL_COLORS.ink;
+  }
+
+  private bonusImpact(effects: EffectsSnapshot, orientation: number): void {
     const impact = effects.bonusImpact;
     if (impact === null) return;
+    if ((impact.bonus === 'pulse' || impact.bonus === 'slow')
+      && effects.shockwaves.some(({ kind }) => kind === impact.bonus)) return;
     const ctx = this.ctx;
     const rawProgress = this.finite(impact.ageMs) / Math.max(1, this.finite(impact.lifetimeMs, 1));
     const progress = ease(rawProgress);
     const life = Math.max(0, 1 - rawProgress);
 
     if (effects.reducedMotion) {
+      if (effects.shockwaves.length > 0) return;
       ctx.save();
       ctx.globalAlpha = life * 0.28;
       ctx.strokeStyle = VISUAL_COLORS.ink;
@@ -548,15 +700,16 @@ export class CanvasRenderer {
 
     if (impact.bonus === 'cleanse') {
       const fragments = effects.fragments;
-      const direction = fragments.length === 0
-        ? -Math.PI / 2
-        : Math.atan2(
+      const direction = impact.targetSide !== null
+        ? this.laneAngle(impact.targetSide - orientation)
+        : fragments.length === 0 ? -Math.PI / 2 : Math.atan2(
           fragments.reduce((sum, fragment) => sum + fragment.y, 0),
           fragments.reduce((sum, fragment) => sum + fragment.x, 0),
         );
+      const furthestCell = impact.cutCells.reduce((max, cell) => Math.max(max, cell.index), -1);
       const outerDistance = fragments.reduce(
         (furthest, fragment) => Math.max(furthest, Math.hypot(fragment.x, fragment.y)),
-        HEX_APOTHEM + BLOCK_DEPTH * 3,
+        HEX_APOTHEM + BLOCK_DEPTH * Math.max(3, furthestCell + 1),
       );
       const distance = outerDistance - progress * Math.max(0, outerDistance - HEX_APOTHEM + 6);
       const center = { x: Math.cos(direction) * distance, y: Math.sin(direction) * distance };
@@ -598,17 +751,21 @@ export class CanvasRenderer {
     }
   }
 
-  private worldEffects(effects: EffectsSnapshot): void {
+  private worldEffects(effects: EffectsSnapshot, snapshot: GameSnapshot): void {
     const ctx = this.ctx;
-    this.bonusImpact(effects);
+    this.localEffects(effects);
+    this.anomalyEvidence(effects, snapshot);
+    this.bonusImpact(effects, snapshot.orientation);
     for (const shockwave of effects.shockwaves) {
-      const progress = ease(this.finite(shockwave.ageMs) / Math.max(1, this.finite(shockwave.lifetimeMs, 1)));
+      if (shockwave.ageMs < shockwave.delayMs) continue;
+      const progress = ease(this.finite(shockwave.ageMs - shockwave.delayMs) / Math.max(1, this.finite(shockwave.lifetimeMs, 1)));
       const life = Math.max(0, 1 - progress);
       const center = { x: this.finite(shockwave.x), y: this.finite(shockwave.y) };
       const radius = 18 + progress * (90 + this.finite(shockwave.intensity) * 80);
       ctx.save();
       ctx.globalAlpha = life * Math.min(1, Math.max(0, shockwave.intensity));
-      ctx.strokeStyle = shockwave.color === 'ivory' ? VISUAL_COLORS.ink : VISUAL_COLORS[shockwave.color];
+      ctx.strokeStyle = shockwave.kind === 'slow' ? VISUAL_COLORS.sky
+        : shockwave.color === 'ivory' ? VISUAL_COLORS.ink : VISUAL_COLORS[shockwave.color];
       ctx.lineWidth = (1.5 + life * 3) / this.scale;
       this.path(hexPoints(center, radius, -TURN)); ctx.stroke();
       ctx.restore();
@@ -621,6 +778,18 @@ export class CanvasRenderer {
       const distance = Math.hypot(flash.x, flash.y);
       this.path(blockQuad(ORIGIN, angle, distance + 2, 3 + life * 8));
       ctx.fillStyle = VISUAL_COLORS.ink; ctx.fill(); ctx.restore();
+    }
+    for (const particle of effects.particles) {
+      if (particle.ageMs < particle.burstDelayMs) continue;
+      const life = Math.max(0, 1 - (particle.ageMs - particle.burstDelayMs)
+        / Math.max(1, particle.lifetimeMs - particle.burstDelayMs));
+      ctx.save();
+      ctx.globalAlpha = life;
+      ctx.fillStyle = VISUAL_COLORS[particle.color];
+      const x = this.finite(particle.x); const y = this.finite(particle.y);
+      this.path(hexPoints({ x, y }, 2 + life * 3, particle.rotation));
+      ctx.fill();
+      ctx.restore();
     }
     const contracting = new Set<string>();
     const releasing = new Set<string>();
@@ -692,6 +861,113 @@ export class CanvasRenderer {
       ctx.restore();
     }
     ctx.globalAlpha = 1;
+  }
+
+  private localEffects(effects: EffectsSnapshot): void {
+    const ctx = this.ctx;
+    for (const cue of effects.anticipations) {
+      const life = Math.max(0, 1 - this.finite(cue.ageMs) / Math.max(1, this.finite(cue.lifetimeMs, 1)));
+      ctx.save();
+      ctx.globalAlpha = life * (cue.kind === 'clear' ? 0.55 : 0.38);
+      ctx.strokeStyle = VISUAL_COLORS.ink;
+      ctx.lineWidth = 1 / this.scale;
+      this.path(hexPoints({ x: cue.x, y: cue.y }, 18 + (1 - life) * 10, -TURN));
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (const landing of effects.landings) {
+      const life = Math.max(0, 1 - this.finite(landing.ageMs) / landing.lifetimeMs);
+      const angle = Math.atan2(landing.y, landing.x);
+      ctx.save();
+      ctx.globalAlpha = life * 0.48;
+      ctx.fillStyle = VISUAL_COLORS[landing.color];
+      ctx.translate(landing.x, landing.y);
+      ctx.scale(1 + (1 - life) * 0.08, 1 - (1 - life) * 0.16);
+      ctx.translate(-landing.x, -landing.y);
+      this.path(blockQuad(ORIGIN, angle, Math.hypot(landing.x, landing.y) + 2, BLOCK_DEPTH - 4));
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  private anomalyEvidence(effects: EffectsSnapshot, snapshot: GameSnapshot): void {
+    const live = new Map(effects.anomalyCues.map((cue) => [cue.anomaly, cue] as const));
+    const active = new Set(snapshot.cycle.anomalies.map(({ type }) => type));
+    const warning = new Set(snapshot.cycle.warning);
+    for (const type of [...active, ...warning]) {
+      if (live.has(type)) continue;
+      live.set(type, { anomaly: type, lanes: snapshot.cycle.threat?.lanes ?? [],
+        ageMs: 0, lifetimeMs: 1, warning: warning.has(type), direction: type === 'reverse' ? -1 : null,
+        destinationLane: null, futureColor: null, remainingImpulseMs: 0 });
+    }
+    const cues = [...live.values()];
+    if (cues.length >= 2) {
+      const angle = this.laneAngle(cues[0]!.lanes[0] ?? 0);
+      const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
+      const center = { x: Math.cos(angle) * 215, y: Math.sin(angle) * 215 };
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = VISUAL_COLORS.amber;
+      ctx.lineWidth = 1 / this.scale;
+      ctx.beginPath();
+      ctx.moveTo(center.x - tangent.x * 30, center.y - tangent.y * 30);
+      ctx.lineTo(center.x + tangent.x * 30, center.y + tangent.y * 30);
+      ctx.stroke();
+      ctx.restore();
+    }
+    cues.forEach((cue, index) => this.anomalyCue(cue, cues.length > 1 ? (index % 2 === 0 ? -1 : 1) : 0));
+  }
+
+  private anomalyCue(cue: AnomalyCue, offset: number): void {
+    const ctx = this.ctx;
+    const lane = cue.lanes[0] ?? 0;
+    const angle = this.laneAngle(lane);
+    const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
+    const radius = cue.anomaly === 'inertia' ? HEX_APOTHEM + 22 : 215;
+    const point = { x: Math.cos(angle) * radius + tangent.x * offset * 30,
+      y: Math.sin(angle) * radius + tangent.y * offset * 30 };
+    ctx.save();
+    ctx.globalAlpha = cue.warning ? 0.72 : 0.58;
+    ctx.strokeStyle = VISUAL_COLORS.amber;
+    ctx.lineWidth = 1.5 / this.scale;
+    if (cue.anomaly === 'reverse' || cue.anomaly === 'inertia') {
+      const direction = cue.direction ?? -1;
+      const start = angle - direction * 0.7;
+      const finish = angle + direction * 0.7;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, cue.anomaly === 'inertia' ? 22 : 18, start, finish, direction < 0);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(point.x + Math.cos(finish) * 22, point.y + Math.sin(finish) * 22);
+      ctx.lineTo(point.x + Math.cos(finish - direction * 0.28) * 16,
+        point.y + Math.sin(finish - direction * 0.28) * 16);
+      ctx.stroke();
+      if (cue.anomaly === 'inertia' && cue.remainingImpulseMs > 0) {
+        ctx.globalAlpha *= Math.min(1, cue.remainingImpulseMs / 300);
+        this.path(hexPoints(ORIGIN, HEX_APOTHEM + 18, -TURN));
+        ctx.stroke();
+      }
+    } else if (cue.anomaly === 'drift') {
+      const destination = cue.destinationLane ?? lane;
+      const destinationAngle = this.laneAngle(destination);
+      const destinationPoint = { x: Math.cos(destinationAngle) * 190, y: Math.sin(destinationAngle) * 190 };
+      this.path(hexPoints(destinationPoint, 16, -TURN));
+      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(point.x, point.y); ctx.lineTo(destinationPoint.x, destinationPoint.y); ctx.stroke();
+    } else if (cue.anomaly === 'mirage') {
+      ctx.setLineDash([6, 5]);
+      this.path(hexPoints(point, 18, -TURN)); ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      this.path(hexPoints(point, 17, -TURN)); ctx.stroke();
+      if (cue.futureColor !== null) {
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = VISUAL_COLORS[cue.futureColor];
+        this.path(hexPoints(point, 6, -TURN)); ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   private screenEffects(effects: EffectsSnapshot): void {

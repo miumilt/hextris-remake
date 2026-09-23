@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CanvasRenderer } from '../src/render/CanvasRenderer';
+import { CanvasRenderer, type RenderLayer } from '../src/render/CanvasRenderer';
 import { GameEngine } from '../src/game/GameEngine';
 import { EffectsSystem } from '../src/render/EffectsSystem';
 import type { GameSnapshot } from '../src/game/types';
@@ -43,6 +43,44 @@ const playing = (): GameSnapshot => {
 };
 
 describe('CanvasRenderer', () => {
+  it('draws six named layers in the required order', () => {
+    const { canvas } = surface();
+    const layers: RenderLayer[] = [];
+    const renderer = new CanvasRenderer(canvas, { onLayer: layer => layers.push(layer) });
+    renderer.resize(800, 600, 1);
+    renderer.render(playing(), effects(), presentation(), 0);
+    expect(layers).toEqual(['background', 'guides', 'field', 'falling', 'world-effects', 'screen-effects']);
+  });
+
+  it.each([[0, 'assemble'], [320, 'guides'], [760, 'ready'], [1199, 'ready']] as const)(
+    'renders opening stage at %i ms (%s)', (ageMs, stage) => {
+      const { canvas } = surface();
+      const stages: string[] = [];
+      const renderer = new CanvasRenderer(canvas, { onOpeningStage: value => stages.push(value) });
+      renderer.resize(800, 600, 1);
+      const timeline = new PresentationSystem();
+      timeline.beginRun([1, 2]);
+      timeline.update(ageMs, 'playing');
+      renderer.render({ ...playing(), opening: { remainingMs: 1200 - ageMs, previewLanes: [1, 2] } },
+        effects(), timeline.snapshot(), 0);
+      expect(stages).toEqual([stage]);
+    },
+  );
+  it('assembles six matte hub facets and clears READY before active play', () => {
+    const { renderer, polygons, context } = surface();
+    renderer.resize(800, 600, 1);
+    const timeline = new PresentationSystem();
+    timeline.beginRun([1, 2]);
+    renderer.render(playing(), effects(), timeline.snapshot(), 0);
+    expect(polygons.filter(({ points }) => points.length === 3).length).toBeGreaterThanOrEqual(6);
+    timeline.update(760, 'playing');
+    renderer.render(playing(), effects(), timeline.snapshot(), 0);
+    expect(context.fillText).toHaveBeenCalledWith('ГОТОВ', 400, 300);
+    context.fillText.mockClear();
+    timeline.update(440, 'playing');
+    renderer.render(playing(), effects(), timeline.snapshot(), 0);
+    expect(context.fillText).not.toHaveBeenCalledWith('ГОТОВ', 400, 300);
+  });
   it.each([['ArrowRight', 1], ['d', 1], ['ArrowLeft', -1], ['a', -1]] as const)(
     '%s moves a top attached plate visibly in the requested direction', (key, horizontalDirection) => {
       const { renderer, polygons } = surface();
