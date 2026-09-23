@@ -124,13 +124,19 @@ export class GameEngine {
     if (this.mode !== 'playing') return Object.freeze(events);
     if (deltaMs < 0 || !Number.isFinite(deltaMs)) throw new RangeError('deltaMs must be finite and non-negative');
 
+    const initialModifiers = this.upgrades.getModifiers();
+    const initialTick = this.director.update(0, initialModifiers);
+    events.push(...initialTick.events);
+    if (initialTick.bonusDue) {
+      this.scheduleBonus(this.director.getWaveProfile().speed * initialModifiers.speedMultiplier, events);
+    }
     if (deltaMs === 0) {
-      const modifiers = this.upgrades.getModifiers();
-      const directorTick = this.director.update(0, modifiers);
-      events.push(...directorTick.events);
-      if (directorTick.bonusDue) this.scheduleBonus(this.director.getWaveProfile().speed * modifiers.speedMultiplier, events);
       this.resolveWorld(events);
-      if (directorTick.upgradeDue && this.mode === 'playing') this.enterUpgrade(events);
+      if (initialTick.upgradeDue && this.mode === 'playing') this.enterUpgrade(events);
+      return Object.freeze(events);
+    }
+    if (initialTick.upgradeDue) {
+      this.enterUpgrade(events);
       return Object.freeze(events);
     }
 

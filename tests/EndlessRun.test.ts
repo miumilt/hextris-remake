@@ -21,6 +21,23 @@ describe('endless threat pressure', () => {
     expect(game.update(0).filter(({ type }) => type === 'bonusScheduled')).toHaveLength(0);
   });
 
+  it('keeps deferred bonus events and state identical across upgrade-resume chunks', () => {
+    const resume = (chunks: readonly number[]) => {
+      const game = new GameEngine({ randomSeed: 1, spawning: false });
+      game.start();
+      game.update(225_000);
+      expect(game.getSnapshot().mode).toBe('upgrade');
+      game.enqueue({ type: 'confirmUpgrade' });
+      const events = chunks.flatMap((chunk) => game.update(chunk));
+      return { events, snapshot: game.getSnapshot() };
+    };
+
+    const fromZero = resume([0, 500]);
+    expect(fromZero.events.filter(({ type }) => type === 'bonusScheduled')).toHaveLength(1);
+    expect(resume([500])).toEqual(fromZero);
+    expect(resume([250, 250])).toEqual(fromZero);
+  });
+
   it('collects falling bonuses in the same order relative to phase changes for 250 and 500 ms chunks', () => {
     const trace = (frameMs: number) => {
       const game = new GameEngine({ randomSeed: 14, spawning: false,
