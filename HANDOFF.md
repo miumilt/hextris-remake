@@ -1,6 +1,6 @@
 # Передача проекта — 23 сентября 2026
 
-Проект: веб-ремейк Hextris в `hextris-remake`. Рабочая ветка: `codex/hextris-remake`. По просьбе пользователя работу остановили после реализации этапа 7; **не пушили**. Этот файл и весь код сохранены коммитами в этой ветке.
+Проект: веб-ремейк Hextris в `hextris-remake`. Рабочая ветка: `codex/hextris-remake`. По просьбе пользователя работу остановили после реализации этапа 7; **не пушили**. Этот файл и весь код сохранены коммитами в этой ветке. На момент передачи `origin` указывает на несуществующий локальный `C:\Users\Student0\Desktop\nice\hextris-remake.bundle`, а не на GitHub; обычный `git push origin` здесь не подходит.
 
 ## Что сделано
 
@@ -29,13 +29,14 @@
 
 ## Перенос на другой ПК
 
-На этом ПК из папки проекта отправить ветку:
+Для переноса без GitHub рядом с папкой проекта создан полный проверенный Git bundle: `C:\Users\qqqma\OneDrive\Desktop\nice\hextris-remake-2026-09-23.bundle`. Скопировать этот **файл** на другой ПК. На другом ПК из папки, куда его положили, выполнить:
 
 ```powershell
-git push origin codex/hextris-remake
+git clone -b codex/hextris-remake .\hextris-remake-2026-09-23.bundle hextris-remake
+cd hextris-remake
 ```
 
-На другом ПК получить её (`git fetch origin`, затем `git switch codex/hextris-remake`; если локальной ветки ещё нет, `git switch -c codex/hextris-remake --track origin/codex/hextris-remake`). В папке проекта выполнить:
+Если хочешь именно GitHub/push/pull, сначала нужен адрес **твоего** GitHub-репозитория. Добавь его как отдельный remote `github` и отправь ветку туда (`git push -u github codex/hextris-remake`); не используй нынешний `origin` с путём к старому bundle. После получения ветки на другом ПК в папке проекта выполнить:
 
 ```powershell
 npm.cmd ci
