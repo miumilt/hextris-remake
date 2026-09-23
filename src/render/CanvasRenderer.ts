@@ -351,7 +351,7 @@ export class CanvasRenderer {
     const ctx = this.ctx;
     const progress = ease(opening.ageMs / (reducedMotion ? 140 : 320));
     const scale = reducedMotion ? 1 : progress < 0.75
-      ? 1 + (118 / (HEX_APOTHEM / Math.cos(Math.PI / 6)) - 1.04) * (1 - progress / 0.75)
+      ? 0.96 + (118 / (HEX_APOTHEM / Math.cos(Math.PI / 6)) - 0.96) * (1 - progress / 0.75)
       : 0.96 + 0.04 * ease((progress - 0.75) / 0.25);
     ctx.save();
     ctx.globalAlpha = reducedMotion ? Math.min(1, opening.ageMs / 140) : 1;
@@ -549,16 +549,18 @@ export class CanvasRenderer {
     ctx.fillText(presentation.glyph, point.x, point.y + 0.5);
 
     const labelPoint = {
-      x: point.x - Math.cos(angle) * 46,
-      y: point.y - Math.sin(angle) * 46,
+      x: point.x - Math.cos(angle) * 66,
+      y: point.y - Math.sin(angle) * 66,
     };
-    const labelWidth = Math.max(78, presentation.label.length * 7.4);
+    const cssToWorld = 1 / this.scale;
+    const labelWidth = Math.max(78, presentation.label.length * 7.4) * cssToWorld;
+    const labelHeight = 20 * cssToWorld;
     ctx.globalAlpha = 0.9;
     ctx.fillStyle = VISUAL_COLORS.background;
-    ctx.fillRect(labelPoint.x - labelWidth / 2, labelPoint.y - 9, labelWidth, 18);
+    ctx.fillRect(labelPoint.x - labelWidth / 2, labelPoint.y - labelHeight / 2, labelWidth, labelHeight);
     ctx.globalAlpha = 1;
     ctx.fillStyle = this.bonusTone(presentation.tone);
-    ctx.font = '800 11px Arial, sans-serif';
+    ctx.font = `800 ${12 * cssToWorld}px Arial, sans-serif`;
     ctx.fillText(presentation.label, labelPoint.x, labelPoint.y + 0.5);
     ctx.restore();
   }
@@ -896,13 +898,25 @@ export class CanvasRenderer {
     const warning = new Set(snapshot.cycle.warning);
     for (const type of [...active, ...warning]) {
       if (live.has(type)) continue;
-      live.set(type, { anomaly: type, lanes: snapshot.cycle.threat?.lanes ?? [],
+      const threatLanes = snapshot.cycle.threat?.anomalies.includes(type) ? snapshot.cycle.threat.lanes : [];
+      live.set(type, { anomaly: type, lanes: threatLanes,
         ageMs: 0, lifetimeMs: 1, warning: warning.has(type), direction: type === 'reverse' ? -1 : null,
         destinationLane: null, futureColor: null, remainingImpulseMs: 0 });
     }
-    const cues = [...live.values()];
-    if (cues.length >= 2) {
-      const angle = this.laneAngle(cues[0]!.lanes[0] ?? 0);
+    const isSharedThreat = (first: AnomalyCue['anomaly'], second: AnomalyCue['anomaly']): boolean =>
+      (warning.has(first) && warning.has(second)) || (active.has(first) && active.has(second));
+    const cues = [...live.values()].map((cue) => {
+      if (cue.lanes.length > 0) return cue;
+      const threatLanes = snapshot.cycle.threat?.anomalies.includes(cue.anomaly)
+        ? snapshot.cycle.threat.lanes : null;
+      const peerLanes = [...live.values()].find((peer) => peer.lanes.length > 0
+        && isSharedThreat(cue.anomaly, peer.anomaly))?.lanes;
+      return { ...cue, lanes: threatLanes ?? peerLanes ?? [] };
+    });
+    const sharedLane = cues.find(({ lanes }) => lanes.length > 0)?.lanes[0];
+    if (cues.length >= 2 && sharedLane !== undefined
+      && isSharedThreat(cues[0]!.anomaly, cues[1]!.anomaly)) {
+      const angle = this.laneAngle(sharedLane);
       const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
       const center = { x: Math.cos(angle) * 215, y: Math.sin(angle) * 215 };
       const ctx = this.ctx;
@@ -921,11 +935,11 @@ export class CanvasRenderer {
 
   private anomalyCue(cue: AnomalyCue, offset: number): void {
     const ctx = this.ctx;
-    const lane = cue.lanes[0] ?? 0;
-    const angle = this.laneAngle(lane);
+    const lane = cue.lanes[0] ?? null;
+    const angle = lane === null ? 0 : this.laneAngle(lane);
     const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
     const radius = cue.anomaly === 'inertia' ? HEX_APOTHEM + 22 : 215;
-    const point = { x: Math.cos(angle) * radius + tangent.x * offset * 30,
+    const point = lane === null ? ORIGIN : { x: Math.cos(angle) * radius + tangent.x * offset * 30,
       y: Math.sin(angle) * radius + tangent.y * offset * 30 };
     ctx.save();
     ctx.globalAlpha = cue.warning ? 0.72 : 0.58;
@@ -949,12 +963,20 @@ export class CanvasRenderer {
         ctx.stroke();
       }
     } else if (cue.anomaly === 'drift') {
-      const destination = cue.destinationLane ?? lane;
-      const destinationAngle = this.laneAngle(destination);
-      const destinationPoint = { x: Math.cos(destinationAngle) * 190, y: Math.sin(destinationAngle) * 190 };
-      this.path(hexPoints(destinationPoint, 16, -TURN));
-      ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(point.x, point.y); ctx.lineTo(destinationPoint.x, destinationPoint.y); ctx.stroke();
+      if (cue.destinationLane === null) {
+        // The warning knows the affected lane, not yet the incoming block's destination.
+        this.path(hexPoints(point, 16, -TURN));
+        ctx.stroke();
+      } else {
+        const destinationAngle = this.laneAngle(cue.destinationLane);
+        const destinationPoint = { x: Math.cos(destinationAngle) * 190, y: Math.sin(destinationAngle) * 190 };
+        this.path(hexPoints(destinationPoint, 16, -TURN));
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(destinationAngle) * 214, Math.sin(destinationAngle) * 214);
+        ctx.lineTo(Math.cos(destinationAngle) * 203, Math.sin(destinationAngle) * 203);
+        ctx.stroke();
+      }
     } else if (cue.anomaly === 'mirage') {
       ctx.setLineDash([6, 5]);
       this.path(hexPoints(point, 18, -TURN)); ctx.stroke();

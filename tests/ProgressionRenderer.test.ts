@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { VISUAL_COLORS } from '../src/game/constants';
+import { HEX_APOTHEM, VISUAL_COLORS } from '../src/game/constants';
 import { GameEngine } from '../src/game/GameEngine';
 import type { GameSnapshot } from '../src/game/types';
 import { CanvasRenderer } from '../src/render/CanvasRenderer';
@@ -25,7 +25,7 @@ interface RecordedStroke {
 function surface() {
   const polygons: RecordedPolygon[] = [];
   const fills: { x: number; y: number; width: number; height: number; style: unknown; alpha: number; depth: number }[] = [];
-  const text: { value: string; x: number; y: number; depth: number }[] = [];
+  const text: { value: string; x: number; y: number; depth: number; font: string }[] = [];
   const rotations: number[] = [];
   const scales: [number, number][] = [];
   const strokes: RecordedStroke[] = [];
@@ -52,7 +52,7 @@ function surface() {
     font: '', textAlign: 'start' as CanvasTextAlign,
     createLinearGradient: () => ({ addColorStop: vi.fn() }),
     createRadialGradient: () => ({ addColorStop: vi.fn() }),
-    fillText: (value: string, x: number, y: number) => text.push({ value, x, y, depth }),
+    fillText: (value: string, x: number, y: number) => text.push({ value, x, y, depth, font: context.font }),
   };
   const canvas = document.createElement('canvas');
   vi.spyOn(canvas, 'getContext').mockReturnValue(context as unknown as CanvasRenderingContext2D);
@@ -77,6 +77,25 @@ const center = (polygon: RecordedPolygon): readonly [number, number] => polygon.
 const plates = (polygons: readonly RecordedPolygon[]) => polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object');
 
 describe('progression rendering', () => {
+  it('takes the opening hub from radius 118 through one continuous four-percent overshoot', () => {
+    const { renderer, scales } = surface();
+    const timeline = new PresentationSystem();
+    const openingScale = (ageMs: number) => {
+      scales.length = 0;
+      timeline.beginRun([1]);
+      timeline.update(ageMs, 'playing');
+      renderer.render(snapshot({ elapsedMs: ageMs,
+        opening: { remainingMs: 1_200 - ageMs, previewLanes: [1] } }),
+      baseEffects(), timeline.snapshot(), 0);
+      return scales.at(-1)![0];
+    };
+    expect(openingScale(0)).toBeCloseTo(118 / (HEX_APOTHEM / Math.cos(Math.PI / 6)));
+    const beforeBoundary = openingScale(215.5);
+    const afterBoundary = openingScale(216);
+    expect(Math.abs(afterBoundary - beforeBoundary)).toBeLessThan(0.01);
+    expect(afterBoundary).toBeGreaterThanOrEqual(0.96);
+    expect(openingScale(319)).toBeLessThanOrEqual(1);
+  });
   it('marks only deterministic preview lanes with an assertive matte opening guide', () => {
     const { renderer, strokes } = surface();
     const timeline = new PresentationSystem();
@@ -164,6 +183,21 @@ describe('progression rendering', () => {
     const token = polygons.find(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.coral)!;
     const [tokenX, tokenY] = center(token);
     expect(Math.max(...token.points.map(([x, y]) => Math.hypot(x - tokenX, y - tokenY)))).toBeGreaterThan(31);
+  });
+
+  it('keeps the falling bonus name and label backing legible in CSS pixels at 1280x720', () => {
+    const { renderer, text, fills } = surface();
+    renderer.resize(1280, 720, 1);
+    renderer.render(snapshot({
+      fallingBonuses: [{ id: 44, type: 'colorBreak', lane: 2, distance: 320, speed: 0 }],
+    }), baseEffects(), presentation(), 1);
+    const cssScale = (renderer.worldToScreen({ x: 100, y: 0 }).x - 640) / 100;
+    const label = text.find(({ value }) => value === 'ЦВЕТОВОЙ ВЗРЫВ')!;
+    const fontPx = Number(label.font.match(/([\d.]+)px/)?.[1]);
+    expect(fontPx * cssScale).toBeGreaterThanOrEqual(11);
+    const backing = fills.find(({ style, y }) => style === VISUAL_COLORS.background && y !== 0)!;
+    expect(backing.height * cssScale).toBeGreaterThanOrEqual(17);
+    expect(backing.width * cssScale).toBeGreaterThanOrEqual(label.value.length * 7);
   });
 
   it('assembles a newly spawned block from a scaled faceted silhouette', () => {
@@ -365,14 +399,79 @@ describe('progression rendering', () => {
     expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.amber && points.length >= 2)).toBe(true);
   });
 
+  it('shows DRIFT affected lane without inventing a destination, then contours the real destination', () => {
+    const { renderer, strokes } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'anomalyWarning', anomalies: ['drift'], lanes: [1],
+      warningMs: 2_500, atActiveMs: 0 }]);
+    const draw = () => {
+      strokes.length = 0;
+      renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+      return strokes.filter(({ style, points }) => style === VISUAL_COLORS.amber && points.length === 6);
+    };
+    const warning = draw();
+    expect(warning.some(stroke => Math.abs(Math.hypot(...center(stroke)) - 215) < 2)).toBe(true);
+    expect(warning.some(stroke => Math.abs(Math.hypot(...center(stroke)) - 190) < 2)).toBe(false);
+    fx.consume([{ type: 'blockSpawned', block: { id: 93, color: 'teal', lane: 1,
+      distance: 520, speed: 0, driftToLane: 4 } }]);
+    const active = draw();
+    expect(active.some(stroke => {
+      const [x, y] = center(stroke);
+      return Math.abs(x - Math.cos(5 * Math.PI / 6) * 190) < 2
+        && Math.abs(y - Math.sin(5 * Math.PI / 6) * 190) < 2;
+    })).toBe(true);
+    expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.amber && points.length === 2
+      && points[0]![0] * points[1]![0] < 0 && points[0]![1] * points[1]![1] < 0)).toBe(false);
+  });
+
   it('joins a double anomaly into one side-attached rule', () => {
     const { renderer, strokes } = surface();
     const fx = new EffectsSystem({ random: () => 0.5 });
     fx.consume([{ type: 'anomalyWarning', anomalies: ['reverse', 'mirage'], lanes: [2],
       warningMs: 3_200, atActiveMs: 0 }]);
-    renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+    const current = snapshot();
+    renderer.render({ ...current, cycle: { ...current.cycle,
+      warning: ['reverse', 'mirage'], warningRemainingMs: 3_200,
+    } }, fx.snapshot(), presentation(), 0);
     expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.amber
       && points.length === 2 && Math.hypot(points[0]![0] - points[1]![0], points[0]![1] - points[1]![1]) >= 50)).toBe(true);
+  });
+
+  it('keeps INERTIA on a known threat lane after rotationDelayed clears its cue lanes', () => {
+    const { renderer, context } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'anomalyWarning', anomalies: ['mirage', 'inertia'], lanes: [3],
+      warningMs: 3_200, atActiveMs: 0 }]);
+    fx.consume([{ type: 'rotationDelayed', steps: 1, remainingMs: 300 }]);
+    expect(fx.snapshot().anomalyCues.find(({ anomaly }) => anomaly === 'inertia')?.lanes).toEqual([]);
+    const doubleThreat = snapshot();
+    renderer.render({ ...doubleThreat, cycle: { ...doubleThreat.cycle,
+      warning: ['mirage', 'inertia'], warningRemainingMs: 1_000,
+    } }, fx.snapshot(), presentation(), 0);
+    const inertiaArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
+    expect(inertiaArc[1]).toBeGreaterThan(0);
+    context.arc.mockClear();
+    renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
+    const unrelatedArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
+    expect(unrelatedArc[0]).toBeCloseTo(0);
+    expect(unrelatedArc[1]).toBeCloseTo(0);
+    context.arc.mockClear();
+    const isolated = new EffectsSystem({ random: () => 0.5 });
+    isolated.consume([{ type: 'rotationDelayed', steps: 1, remainingMs: 300 }]);
+    const current = snapshot();
+    renderer.render({ ...current, cycle: { ...current.cycle,
+      anomalies: [{ type: 'inertia', remainingMs: 3_000 }],
+      threat: { pattern: 'pair', anchorLane: 3, lanes: [3], anomalies: ['inertia'],
+        warningMs: 2_500, entryDelayMs: 0, bonusIncompatible: false,
+        evidence: { seedCycle: 1, phase: 'build', budget: 1, spent: 1, combinationKey: 'inertia' } },
+    } }, isolated.snapshot(), presentation(), 0);
+    const threatArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
+    expect(threatArc[1]).toBeGreaterThan(0);
+    context.arc.mockClear();
+    renderer.render(snapshot(), isolated.snapshot(), presentation(), 0);
+    const unlocatedArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
+    expect(unlocatedArc[0]).toBeCloseTo(0);
+    expect(unlocatedArc[1]).toBeCloseTo(0);
   });
 
   it('keeps reduced motion free of transforms and fragments while retaining a local contour', () => {
