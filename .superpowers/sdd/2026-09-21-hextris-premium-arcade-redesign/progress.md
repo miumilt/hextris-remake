@@ -36,7 +36,7 @@ Preflight workspace ruling: continue in the existing non-main feature branch and
 Task 1: pending
 Task 2: pending
 Task 3: complete
-Task 4: pending
+Task 4: complete
 Task 5: pending
 Task 6: pending
 Task 7: pending
@@ -62,3 +62,7 @@ Task 2: complete. Deterministic threat plans now carry frozen budget, lane, anom
 
 Task 3: complete (commit 457fe23..f5b0c3e, independent review approved with no Critical/Important findings). Opening preview and delayed first wave, one-shot authored threat waves, final profile clamps, and strict legal 35–50-second bonus spacing are integrated. Fresh controller verification: 231/231 tests across 24 files, TypeScript, and `git diff --check` pass. Browser smoke test captured the opening and first wave with real controls; no console errors were observed. Task 4 is next.
 Task 3 minor (deferred): add a whole-engine integration test that reaches an authored Pressure wave with spawning enabled; current director and spawner tests cover the pieces independently. Audit the zero-time deferred bonus release path for final speed clamping in the Task 8 integration pass.
+
+Task 4: complete (commits 6cdba71..66a5e3f, independent review/re-review approved with no Critical/Important findings). Opening stages, 90+800 ms collection transfer, 1.7 s acquisition/replacement copy, 1.8 s first-seen anomaly copy, 900 ms activation copy, mode-frozen visual clocks, and safe unknown-ID fallbacks are covered. Fresh controller verification: 249/249 tests across 24 files, TypeScript, and diff check pass. Task 5 is next.
+Task 4 minor (deferred): a first-seen anomaly queued but later evicted before display is currently marked seen. Strict first-seen semantics would mark it only when the notice becomes visible; audit in Task 8/final review.
+Task 4 handoffs: Task 6 must change Canvas transfer rendering from old 240/800 boundaries to 90/890, including `ivory` fallback palette. Task 7 can migrate old presentation snapshot literals and make `opening` required, and must style `ivory` fallback. Task 8 must call `beginRun` and pass live mode to `update`.
