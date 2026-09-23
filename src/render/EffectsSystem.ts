@@ -12,6 +12,7 @@ const MAX_FRAGMENTS = 180;
 const MAX_LOCAL_CUES = 36;
 const MAX_ANOMALY_CUES = 4;
 const ORDINARY_EXPIRY_MS = 980;
+const MAX_WARNING_CUE_MS = 3_200;
 const FLASH_LIFETIME_MS = 160;
 const SHAKE_LIFETIME_MS = 120;
 const COMBO_LIFETIME_MS = 360;
@@ -23,6 +24,7 @@ const FRACTURE_ANTICIPATION_MS = 80;
 const BONUS_COLLECTION_HOLD_MS = 90;
 const LANDING_SQUASH_MS = 110;
 const BONUS_IMPACT_LIFETIME_MS = 620 as const;
+const COLOR_BREAK_GROUP_COUNT = 16;
 
 const ANOMALY_LABELS: Readonly<Record<AnomalyType, string>> = Object.freeze({
   reverse: 'РЕВЕРС',
@@ -352,7 +354,7 @@ export class EffectsSystem {
               const delay = event.bonus === 'cleanse'
                 ? index * 28
                 : event.bonus === 'colorBreak'
-                  ? index * 24
+                  ? (index % COLOR_BREAK_GROUP_COUNT) * 24
                   : event.bonus === 'pulse' ? index * 20 : 0;
               this.addAnticipation('bonus', this.cellPosition(cell, center, orientation),
                 Math.min(FRACTURE_ANTICIPATION_MS + delay, ORDINARY_EXPIRY_MS));
@@ -616,7 +618,7 @@ export class EffectsSystem {
       anomaly,
       lanes: [...lanes],
       ageMs: 0,
-      lifetimeMs: Math.max(0, Math.min(lifetimeMs, warning ? 2_500 : ORDINARY_EXPIRY_MS)),
+      lifetimeMs: Math.max(0, Math.min(lifetimeMs, warning ? MAX_WARNING_CUE_MS : ORDINARY_EXPIRY_MS)),
       warning,
       direction: details.direction ?? (anomaly === 'reverse' ? -1 : previous?.direction ?? null),
       destinationLane: details.destinationLane ?? (warning ? null : previous?.destinationLane ?? null),

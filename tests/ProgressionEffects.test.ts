@@ -160,6 +160,41 @@ describe('progression effects', () => {
     expect(effects.snapshot().anomalyCues.some(({ anomaly }) => anomaly === 'drift')).toBe(false);
   });
 
+  it('keeps both double-threat cues for the full 3,200 ms warning before start', () => {
+    const effects = new EffectsSystem();
+    effects.consume([{
+      type: 'anomalyWarning', anomalies: ['mirage', 'drift'], lanes: [1, 4],
+      warningMs: 3_200, atActiveMs: 395_000,
+    }]);
+    expect(effects.snapshot().anomalyCues).toHaveLength(2);
+    effects.update(3_199);
+    expect(effects.snapshot().anomalyCues).toMatchObject([
+      { anomaly: 'mirage', warning: true, lanes: [1, 4], lifetimeMs: 3_200 },
+      { anomaly: 'drift', warning: true, lanes: [1, 4], lifetimeMs: 3_200 },
+    ]);
+    effects.update(1);
+    expect(effects.snapshot().anomalyCues).toEqual([]);
+    effects.consume([{ type: 'anomalyStarted', anomalies: ['mirage', 'drift'], lanes: [1, 4], atActiveMs: 398_200 }]);
+    expect(effects.snapshot().anomalyCues).toMatchObject([
+      { anomaly: 'mirage', warning: false }, { anomaly: 'drift', warning: false },
+    ]);
+  });
+
+  it('releases dense COLOR BREAK groups with visible travel before 980 ms expiry', () => {
+    const cells = Array.from({ length: 48 }, (_, index) => ({ side: index % 6, index: Math.floor(index / 6) }));
+    const blocks = cells.map((_, index) => ({ id: index + 1, color: 'teal' as const }));
+    const effects = new EffectsSystem({ random: () => 0.5 });
+    effects.consume([{ type: 'bonusRemoved', bonus: 'colorBreak', cells, blocks, scoreDelta: 48 * 80 }]);
+    const fragments = effects.snapshot().fragments;
+    expect(fragments).toHaveLength(180);
+    expect(new Set(fragments.map(({ anticipationMs }) => anticipationMs)).size).toBeGreaterThanOrEqual(3);
+    expect(fragments.every(({ lifetimeMs, anticipationMs }) =>
+      lifetimeMs <= 980 && lifetimeMs - anticipationMs >= 500)).toBe(true);
+    effects.update(500);
+    expect(effects.snapshot().fragments.some(({ x, y, originX, originY }) =>
+      x !== originX || y !== originY)).toBe(true);
+  });
+
   it('announces anomaly starts transiently without retaining a cue when they end', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
