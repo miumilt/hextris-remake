@@ -97,6 +97,7 @@ export class PresentationSystem {
 
   public consume(events: readonly PresentationEvent[]): void {
     const candidates: MutableNotice[] = [];
+    const firstSeenCandidates: { notice: MutableNotice; anomalies: readonly AnomalyType[] }[] = [];
     for (const event of events) {
       switch (event.type) {
         case 'bonusCollected': {
@@ -159,23 +160,33 @@ export class PresentationSystem {
           break;
         case 'anomalyStarted': {
           const descriptions = event.anomalies.map((anomaly) => {
-            const metadata = ANOMALY_PRESENTATION[anomaly] ?? FALLBACK_ANOMALY_PRESENTATION;
+            const metadata = Object.prototype.hasOwnProperty.call(ANOMALY_PRESENTATION, anomaly)
+              ? ANOMALY_PRESENTATION[anomaly]
+              : FALLBACK_ANOMALY_PRESENTATION;
             const firstSeen = !this.firstSeenAnomalies.has(anomaly);
-            this.firstSeenAnomalies.add(anomaly);
-            return { metadata, firstSeen };
+            return { anomaly, metadata, firstSeen };
           });
           if (descriptions.length > 0) {
             const title = descriptions.map(({ metadata }) => metadata.label).join(' + ');
             const body = descriptions.filter(({ firstSeen }) => firstSeen)
               .map(({ metadata }) => metadata.explanation).join(' · ');
-            candidates.push(this.createNotice(title, body, 'coral', 3,
-              body ? FIRST_ANOMALY_LIFETIME_MS : 900));
+            const notice = this.createNotice(title, body, 'coral', 3,
+              body ? FIRST_ANOMALY_LIFETIME_MS : 900);
+            candidates.push(notice);
+            firstSeenCandidates.push({
+              notice,
+              anomalies: descriptions.filter(({ firstSeen }) => firstSeen).map(({ anomaly }) => anomaly),
+            });
           }
           break;
         }
       }
     }
     this.mergeNotices(candidates);
+    for (const { notice, anomalies } of firstSeenCandidates) {
+      if (this.notice !== notice && !this.queuedNotices.includes(notice)) continue;
+      for (const anomaly of anomalies) this.firstSeenAnomalies.add(anomaly);
+    }
   }
 
   public update(deltaMs: number, mode: GameMode = 'playing'): void {

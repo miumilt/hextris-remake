@@ -58,5 +58,7 @@ const FALLBACK_BONUS_PRESENTATION: BonusPresentation = entry({
 export function getBonusPresentation(type: BonusType): KnownBonusPresentation;
 export function getBonusPresentation(type: string): BonusPresentation;
 export function getBonusPresentation(type: string): BonusPresentation {
-  return BONUS_PRESENTATION[type as BonusType] ?? FALLBACK_BONUS_PRESENTATION;
+  return Object.prototype.hasOwnProperty.call(BONUS_PRESENTATION, type)
+    ? BONUS_PRESENTATION[type as BonusType]
+    : FALLBACK_BONUS_PRESENTATION;
 }

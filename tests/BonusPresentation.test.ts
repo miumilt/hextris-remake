@@ -35,4 +35,13 @@ describe('bonus presentation metadata', () => {
     });
     expect(Object.isFrozen(getBonusPresentation('unknown-at-runtime'))).toBe(true);
   });
+
+  it.each(['constructor', '__proto__', 'toString'])(
+    'treats inherited %s as unknown rather than as authored bonus metadata',
+    (id) => {
+      expect(getBonusPresentation(id)).toMatchObject({
+        label: 'БОНУС', description: 'ПРОБЕЛ — ИСПОЛЬЗОВАТЬ', glyph: '◇', tone: 'ivory',
+      });
+    },
+  );
 });

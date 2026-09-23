@@ -133,6 +133,32 @@ describe('PresentationSystem', () => {
     });
   });
 
+  it('does not consume a first-seen explanation when notice cap drops it', () => {
+    const presentation = new PresentationSystem();
+    const reverseStarted = {
+      type: 'anomalyStarted' as const,
+      anomalies: ['reverse'] as const,
+      lanes: [0],
+      atActiveMs: 95_000,
+    };
+    presentation.consume([
+      { type: 'bonusActivated', bonus: 'slow' },
+      { type: 'lastStand', side: 0, cells: [], blocks: [] },
+      { type: 'gameOver', score: 42 },
+      reverseStarted,
+    ]);
+    const titles = [
+      presentation.snapshot().notice?.title,
+      ...presentation.snapshot().queuedNotices.map(({ title }) => title),
+    ];
+    expect(titles).not.toContain('РЕВЕРС');
+    presentation.update(2700, 'playing');
+    presentation.consume([reverseStarted]);
+    expect(presentation.snapshot().notice).toMatchObject({
+      title: 'РЕВЕРС', body: 'УПРАВЛЕНИЕ МЕНЯЕТСЯ МЕСТАМИ', lifetimeMs: 1800,
+    });
+  });
+
   it('uses a readable static notice when anomaly metadata is missing at runtime', () => {
     const presentation = new PresentationSystem();
     const unknown = 'unknown-at-runtime' as AnomalyType;
@@ -141,6 +167,19 @@ describe('PresentationSystem', () => {
       title: 'АНОМАЛИЯ', body: 'СЛЕДИ ЗА ПРЕДУПРЕЖДЕНИЕМ', lifetimeMs: 1800,
     });
   });
+
+  it.each(['constructor', '__proto__', 'toString'])(
+    'treats inherited %s as missing anomaly metadata',
+    (id) => {
+      const presentation = new PresentationSystem();
+      presentation.consume([{
+        type: 'anomalyStarted', anomalies: [id as AnomalyType], lanes: [0], atActiveMs: 95_000,
+      }]);
+      expect(presentation.snapshot().notice).toMatchObject({
+        title: 'АНОМАЛИЯ', body: 'СЛЕДИ ЗА ПРЕДУПРЕЖДЕНИЕМ', lifetimeMs: 1800,
+      });
+    },
+  );
 
   it('announces Pressure once and lets Release stay visually quiet', () => {
     const presentation = new PresentationSystem();
