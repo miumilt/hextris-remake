@@ -37,7 +37,7 @@ Task 1: pending
 Task 2: pending
 Task 3: complete
 Task 4: complete
-Task 5: pending
+Task 5: complete
 Task 6: pending
 Task 7: pending
 Task 8: pending
@@ -66,3 +66,6 @@ Task 3 minor (deferred): add a whole-engine integration test that reaches an aut
 Task 4: complete (commits 6cdba71..66a5e3f, independent review/re-review approved with no Critical/Important findings). Opening stages, 90+800 ms collection transfer, 1.7 s acquisition/replacement copy, 1.8 s first-seen anomaly copy, 900 ms activation copy, mode-frozen visual clocks, and safe unknown-ID fallbacks are covered. Fresh controller verification: 249/249 tests across 24 files, TypeScript, and diff check pass. Task 5 is next.
 Task 4 minor (deferred): a first-seen anomaly queued but later evicted before display is currently marked seen. Strict first-seen semantics would mark it only when the notice becomes visible; audit in Task 8/final review.
 Task 4 handoffs: Task 6 must change Canvas transfer rendering from old 240/800 boundaries to 90/890, including `ivory` fallback palette. Task 7 can migrate old presentation snapshot literals and make `opening` required, and must style `ivory` fallback. Task 8 must call `beginRun` and pass live mode to `update`.
+
+Task 5: complete (commits 120badd..a9a9de3, independent review/re-review approved with no Critical/Important findings). Bounded anticipations, landings, fragments, delayed shockwaves, bonus identities, anomaly cues, and reduced-motion static cues are modeled and tested. Review fix preserved full 3.2 s double-warning evidence and visible fracture travel for dense COLOR BREAK. Fresh controller verification: 261/261 tests across 24 files, TypeScript, production build/source packaging, and diff check pass. Task 6 is next.
+Task 5 minor (deferred): `MAX_WARNING_CUE_MS = 3_200` duplicates a ThreatDirector warning constant; future changes require synchronized edits. Task 6 must render the new effect channels, respect shockwave delays, avoid a double reduced-motion contour, and preserve readable active-anomaly evidence beyond the 980 ms event cue.
