@@ -236,7 +236,7 @@ describe('progression rendering', () => {
     )).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('does not draw an ambiguous traveling glyph after collection', () => {
+  it('draws the collected glyph during the staged transfer', () => {
     const { renderer, text } = surface();
     const timeline = new PresentationSystem();
     timeline.consume([{
@@ -247,8 +247,10 @@ describe('progression rendering', () => {
 
     renderer.render(snapshot({ bonus: { stored: 'pulse', slowRemainingMs: 0 } }), baseEffects(), timeline.snapshot(), 0);
 
-    expect(timeline.snapshot().transfer).toBeNull();
-    expect(text).not.toContainEqual(expect.objectContaining({ value: '⌁' }));
+    expect(timeline.snapshot().transfer).toMatchObject({
+      bonus: 'pulse', ageMs: 320, delayMs: 90, lifetimeMs: 800,
+    });
+    expect(text).toContainEqual(expect.objectContaining({ value: '⌁' }));
   });
 
   it('keeps reduced motion free of assembly transforms and traveling fragments', () => {

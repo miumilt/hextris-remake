@@ -1,5 +1,5 @@
-import type { BonusType, FallingBonus } from '../game/progressionTypes';
-import type { GameEvent } from '../game/types';
+import type { AnomalyType, BonusType, FallingBonus } from '../game/progressionTypes';
+import type { GameEvent, GameMode } from '../game/types';
 import { getBonusPresentation } from './bonusPresentation';
 
 export type NoticePriority = 1 | 2 | 3 | 4;
@@ -28,10 +28,22 @@ export interface BonusTransfer {
   readonly lane: number;
   readonly distance: number;
   readonly ageMs: number;
-  readonly lifetimeMs: 650;
+  readonly delayMs: 90;
+  readonly lifetimeMs: 800;
+}
+
+export type OpeningStage = 'assemble' | 'guides' | 'ready';
+
+export interface OpeningPresentation {
+  readonly stage: OpeningStage;
+  readonly ageMs: number;
+  readonly lifetimeMs: 1200;
+  readonly previewLanes: readonly number[];
 }
 
 export interface PresentationSnapshot {
+  // Optional during the renderer/HUD migration; snapshots produced here always include opening.
+  readonly opening?: OpeningPresentation | null;
   readonly notice: PresentationNotice | null;
   readonly queuedNotices: readonly PresentationNotice[];
   readonly transfer: BonusTransfer | null;
@@ -41,19 +53,47 @@ export interface PresentationSnapshot {
 
 interface MutableNotice extends Omit<PresentationNotice, 'ageMs'> { ageMs: number; }
 interface MutableTransfer extends Omit<BonusTransfer, 'ageMs'> { ageMs: number; }
+interface MutableOpening { ageMs: number; previewLanes: readonly number[]; }
 
 const MAX_VISIBLE_NOTICES = 3;
-const COLLECTION_LIFETIME_MS = 1400;
-const REPLACEMENT_LIFETIME_MS = 950;
-const ACTIVATION_LIFETIME_MS = 620;
+const COLLECTION_LIFETIME_MS = 1700;
+const REPLACEMENT_LIFETIME_MS = 1700;
+const ACTIVATION_LIFETIME_MS = 900;
+const FIRST_ANOMALY_LIFETIME_MS = 1800;
+const REPLACED_GLYPH_LIFETIME_MS = 800;
 const SLOT_ATTENTION_MS = 2500;
 
+export const ANOMALY_PRESENTATION: Readonly<Record<AnomalyType, { label: string; explanation: string }>> = Object.freeze({
+  reverse: Object.freeze({ label: 'РЕВЕРС', explanation: 'УПРАВЛЕНИЕ МЕНЯЕТСЯ МЕСТАМИ' }),
+  mirage: Object.freeze({ label: 'МИРАЖ', explanation: 'СЛЕДУЙ ЗА САМЫМ ПЛОТНЫМ СЛЕДОМ' }),
+  drift: Object.freeze({ label: 'ДРЕЙФ', explanation: 'КОНТУР ПОКАЗЫВАЕТ МЕСТО ПРИЗЕМЛЕНИЯ' }),
+  colorShift: Object.freeze({ label: 'СМЕНА ЦВЕТА', explanation: 'ВНУТРЕННЯЯ ГРАНЬ ПОКАЗЫВАЕТ БУДУЩИЙ ЦВЕТ' }),
+  inertia: Object.freeze({ label: 'ИНЕРЦИЯ', explanation: 'ПОВОРОТ СРАБАТЫВАЕТ С ЗАДЕРЖКОЙ' }),
+});
+
+const FALLBACK_ANOMALY_PRESENTATION = Object.freeze({
+  label: 'АНОМАЛИЯ',
+  explanation: 'СЛЕДИ ЗА ПРЕДУПРЕЖДЕНИЕМ',
+});
+
+const openingStageAt = (ageMs: number): OpeningStage =>
+  ageMs < 320 ? 'assemble' : ageMs < 760 ? 'guides' : 'ready';
+
 export class PresentationSystem {
+  private opening: MutableOpening | null = null;
   private notice: MutableNotice | null = null;
   private queuedNotices: MutableNotice[] = [];
   private transfer: MutableTransfer | null = null;
   private slotAttentionRemainingMs = 0;
   private replacedBonus: BonusType | null = null;
+  private replacedBonusRemainingMs = 0;
+  private readonly firstSeenAnomalies = new Set<AnomalyType>();
+  private announcedPressureCycle: number | null = null;
+
+  public beginRun(previewLanes: readonly number[]): void {
+    this.reset();
+    this.opening = { ageMs: 0, previewLanes: Object.freeze([...previewLanes]) };
+  }
 
   public consume(events: readonly PresentationEvent[]): void {
     const candidates: MutableNotice[] = [];
@@ -68,6 +108,14 @@ export class PresentationSystem {
               `БОНУС: ${bonus.label}`, bonus.description, bonus.tone, 3, COLLECTION_LIFETIME_MS,
             ));
           }
+          this.transfer = {
+            bonus: event.bonus,
+            lane: event.token.lane,
+            distance: event.token.distance,
+            ageMs: 0,
+            delayMs: 90,
+            lifetimeMs: 800,
+          };
           this.slotAttentionRemainingMs = SLOT_ATTENTION_MS;
           break;
         }
@@ -82,6 +130,7 @@ export class PresentationSystem {
             REPLACEMENT_LIFETIME_MS,
           ));
           this.replacedBonus = event.previous;
+          this.replacedBonusRemainingMs = REPLACED_GLYPH_LIFETIME_MS;
           break;
         }
         case 'bonusActivated': {
@@ -102,30 +151,68 @@ export class PresentationSystem {
         case 'gameOver':
           candidates.push(this.createNotice('ИГРА ОКОНЧЕНА', `ИТОГОВЫЙ СЧЁТ ${event.score}`, 'ivory', 4, 900, true));
           break;
+        case 'phaseChanged':
+          if (event.phase === 'pressure' && this.announcedPressureCycle !== event.cycle) {
+            this.announcedPressureCycle = event.cycle;
+            candidates.push(this.createNotice('ДАВЛЕНИЕ', '', 'ivory', 2, 900));
+          }
+          break;
+        case 'anomalyStarted': {
+          const descriptions = event.anomalies.map((anomaly) => {
+            const metadata = ANOMALY_PRESENTATION[anomaly] ?? FALLBACK_ANOMALY_PRESENTATION;
+            const firstSeen = !this.firstSeenAnomalies.has(anomaly);
+            this.firstSeenAnomalies.add(anomaly);
+            return { metadata, firstSeen };
+          });
+          if (descriptions.length > 0) {
+            const title = descriptions.map(({ metadata }) => metadata.label).join(' + ');
+            const body = descriptions.filter(({ firstSeen }) => firstSeen)
+              .map(({ metadata }) => metadata.explanation).join(' · ');
+            candidates.push(this.createNotice(title, body, 'coral', 3,
+              body ? FIRST_ANOMALY_LIFETIME_MS : 900));
+          }
+          break;
+        }
       }
     }
     this.mergeNotices(candidates);
   }
 
-  public update(deltaMs: number): void {
+  public update(deltaMs: number, mode: GameMode = 'playing'): void {
+    if (mode !== 'playing') return;
     const dt = Number.isFinite(deltaMs) && deltaMs > 0 ? deltaMs : 0;
     if (dt === 0) return;
-    if (this.notice !== null) {
-      this.notice.ageMs += dt;
-      if (this.notice.ageMs >= this.notice.lifetimeMs) {
-        this.notice = this.queuedNotices.shift() ?? null;
+    if (this.opening !== null) {
+      this.opening.ageMs += dt;
+      if (this.opening.ageMs >= 1200) this.opening = null;
+    }
+    let noticeTimeMs = dt;
+    while (this.notice !== null && noticeTimeMs > 0) {
+      const untilExpiryMs = this.notice.lifetimeMs - this.notice.ageMs;
+      if (noticeTimeMs < untilExpiryMs) {
+        this.notice.ageMs += noticeTimeMs;
+        break;
       }
+      noticeTimeMs -= untilExpiryMs;
+      this.notice = this.queuedNotices.shift() ?? null;
     }
     if (this.transfer !== null) {
       this.transfer.ageMs += dt;
-      if (this.transfer.ageMs >= this.transfer.lifetimeMs) this.transfer = null;
+      if (this.transfer.ageMs >= this.transfer.delayMs + this.transfer.lifetimeMs) this.transfer = null;
     }
     this.slotAttentionRemainingMs = Math.max(0, this.slotAttentionRemainingMs - dt);
-    if (!this.hasReplacementNotice()) this.replacedBonus = null;
+    this.replacedBonusRemainingMs = Math.max(0, this.replacedBonusRemainingMs - dt);
+    if (this.replacedBonusRemainingMs === 0) this.replacedBonus = null;
   }
 
   public snapshot(): PresentationSnapshot {
     return Object.freeze({
+      opening: this.opening === null ? null : Object.freeze({
+        stage: openingStageAt(this.opening.ageMs),
+        ageMs: this.opening.ageMs,
+        lifetimeMs: 1200,
+        previewLanes: this.opening.previewLanes,
+      }),
       notice: this.freezeNotice(this.notice),
       queuedNotices: Object.freeze(this.queuedNotices.map((notice) => this.freezeNotice(notice)!)),
       transfer: this.transfer === null ? null : Object.freeze({ ...this.transfer }),
@@ -135,11 +222,15 @@ export class PresentationSystem {
   }
 
   public reset(): void {
+    this.opening = null;
     this.notice = null;
     this.queuedNotices = [];
     this.transfer = null;
     this.slotAttentionRemainingMs = 0;
     this.replacedBonus = null;
+    this.replacedBonusRemainingMs = 0;
+    this.firstSeenAnomalies.clear();
+    this.announcedPressureCycle = null;
   }
 
   private createNotice(
@@ -175,10 +266,6 @@ export class PresentationSystem {
       .map(({ notice }) => notice);
     this.notice = unique.shift() ?? null;
     this.queuedNotices = unique;
-  }
-
-  private hasReplacementNotice(): boolean {
-    return [this.notice, ...this.queuedNotices].some((notice) => notice?.title.includes(' ЗАМЕНИЛ '));
   }
 
   private freezeNotice(notice: MutableNotice | null): PresentationNotice | null {

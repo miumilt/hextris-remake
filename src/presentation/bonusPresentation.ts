@@ -1,6 +1,6 @@
 import type { BonusType } from '../game/progressionTypes';
 
-export type BonusTone = 'sky' | 'amber' | 'teal' | 'coral';
+export type BonusTone = 'sky' | 'amber' | 'teal' | 'coral' | 'ivory';
 
 export interface BonusPresentation {
   readonly label: string;
@@ -10,9 +10,13 @@ export interface BonusPresentation {
   readonly tone: BonusTone;
 }
 
-const entry = (value: BonusPresentation): BonusPresentation => Object.freeze(value);
+export interface KnownBonusPresentation extends BonusPresentation {
+  readonly tone: Exclude<BonusTone, 'ivory'>;
+}
 
-export const BONUS_PRESENTATION: Readonly<Record<BonusType, BonusPresentation>> = Object.freeze({
+const entry = <T extends BonusPresentation>(value: T): Readonly<T> => Object.freeze(value);
+
+export const BONUS_PRESENTATION: Readonly<Record<BonusType, KnownBonusPresentation>> = Object.freeze({
   slow: entry({
     label: 'ЗАМЕДЛЕНИЕ',
     description: 'ЗАМЕДЛЯЕТ ПАДАЮЩИЕ БЛОКИ НА 6 СЕКУНД',
@@ -43,4 +47,16 @@ export const BONUS_PRESENTATION: Readonly<Record<BonusType, BonusPresentation>> 
   }),
 });
 
-export const getBonusPresentation = (type: BonusType): BonusPresentation => BONUS_PRESENTATION[type];
+const FALLBACK_BONUS_PRESENTATION: BonusPresentation = entry({
+  label: 'БОНУС',
+  description: 'ПРОБЕЛ — ИСПОЛЬЗОВАТЬ',
+  activationCopy: 'БОНУС АКТИВИРОВАН',
+  glyph: '◇',
+  tone: 'ivory',
+});
+
+export function getBonusPresentation(type: BonusType): KnownBonusPresentation;
+export function getBonusPresentation(type: string): BonusPresentation;
+export function getBonusPresentation(type: string): BonusPresentation {
+  return BONUS_PRESENTATION[type as BonusType] ?? FALLBACK_BONUS_PRESENTATION;
+}

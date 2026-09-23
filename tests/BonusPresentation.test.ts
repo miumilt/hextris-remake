@@ -28,4 +28,11 @@ describe('bonus presentation metadata', () => {
     });
     expect(Object.values(BONUS_PRESENTATION).every(Object.isFrozen)).toBe(true);
   });
+
+  it('falls back to a readable static cue for missing runtime metadata', () => {
+    expect(getBonusPresentation('unknown-at-runtime')).toMatchObject({
+      label: 'БОНУС', description: 'ПРОБЕЛ — ИСПОЛЬЗОВАТЬ', glyph: '◇', tone: 'ivory',
+    });
+    expect(Object.isFrozen(getBonusPresentation('unknown-at-runtime'))).toBe(true);
+  });
 });
