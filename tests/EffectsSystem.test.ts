@@ -24,18 +24,18 @@ describe('EffectsSystem', () => {
 
     expect(effects.snapshot().fragments).toHaveLength(8);
     expect(effects.snapshot().fragments[0]).toMatchObject({
-      color: 'coral', ageMs: 0, lifetimeMs: 620, anticipationMs: 100,
+      color: 'coral', ageMs: 0, lifetimeMs: 620, anticipationMs: 80,
     });
     expect(effects.snapshot().fragments[0]!.originX).toBeCloseTo(0);
     expect(effects.snapshot().fragments[0]!.originY).toBeCloseTo(-72);
     expect(effects.snapshot().fragments[0]!.size).toBeGreaterThanOrEqual(9);
 
-    effects.update(50);
-    effects.update(50);
+    effects.update(40);
+    effects.update(40);
     expect(effects.snapshot().fragments[0]!.x).toBeCloseTo(0);
     expect(effects.snapshot().fragments[0]!.y).toBeCloseTo(-72);
-    expect(effects.snapshot().fragments[0]!.ageMs).toBe(100);
-    effects.update(50);
+    expect(effects.snapshot().fragments[0]!.ageMs).toBe(80);
+    effects.update(40);
     expect(effects.snapshot().fragments[0]!.y).toBeLessThan(-72);
   });
 
@@ -85,14 +85,14 @@ describe('EffectsSystem', () => {
     expect(effects.snapshot().fragments).toEqual([]);
   });
 
-  it('clamps one update to fifty milliseconds while integrating fragment motion', () => {
+  it('integrates a long visual step in bounded slices without losing elapsed time', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([
       { type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'coral', chain: 1 },
     ]);
 
     const before = effects.snapshot().fragments[0];
-    effects.update(500);
+    effects.update(50);
 
     const [fragment] = effects.snapshot().fragments;
     expect(fragment?.ageMs).toBe(50);
@@ -103,13 +103,11 @@ describe('EffectsSystem', () => {
     effects.update(50);
     const anticipated = effects.snapshot().fragments[0]!;
     expect(anticipated.ageMs).toBe(100);
-    expect(anticipated.x).toBeCloseTo(before!.x);
-    expect(anticipated.y).toBeCloseTo(before!.y);
+    expect(anticipated.y).toBeLessThan(before!.y);
 
     effects.update(50);
     const moving = effects.snapshot().fragments[0]!;
     expect(moving.ageMs).toBe(150);
-    expect(moving.x).toBeCloseTo(before!.x);
     expect(moving.y).toBeLessThan(before!.y);
     expect(before!.ageMs).toBe(0);
   });
@@ -167,6 +165,53 @@ describe('EffectsSystem', () => {
     expect(fragments.every((fragment) => fragment.color === 'sky' && fragment.ageMs === 0)).toBe(true);
   });
 
+  it('stages a clear through 80 ms anticipation and expires ordinary channels by 980 ms', () => {
+    const effects = new EffectsSystem({ random: () => 0.5 });
+    effects.consume([{ type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'teal', chain: 1 }]);
+    expect(effects.snapshot().anticipations).toMatchObject([{ kind: 'clear', y: -72, ageMs: 0, lifetimeMs: 80 }]);
+    expect(effects.snapshot().anticipations[0]?.x).toBeCloseTo(0);
+    effects.update(79);
+    expect(effects.snapshot().fragments.every((fragment) => fragment.x === fragment.originX && fragment.y === fragment.originY)).toBe(true);
+    effects.update(1);
+    expect(effects.snapshot().anticipations).toEqual([]);
+    effects.update(900);
+    expect(effects.snapshot().fragments).toEqual([]);
+    expect(effects.snapshot().shockwaves).toEqual([]);
+  });
+
+  it('gives a landing a capped 110 ms squash record and local anticipation', () => {
+    const effects = new EffectsSystem();
+    effects.consume([{ type: 'blockLanded', block: { id: 1, color: 'sky' }, cell: { side: 0, index: 0 } }]);
+    expect(effects.snapshot().landings).toMatchObject([{ y: -72, color: 'sky', ageMs: 0, lifetimeMs: 110 }]);
+    expect(effects.snapshot().landings[0]?.x).toBeCloseTo(0);
+    expect(effects.snapshot().anticipations).toMatchObject([{ kind: 'landing', y: -72 }]);
+    effects.update(110);
+    expect(effects.snapshot().landings).toEqual([]);
+  });
+
+  it('caps every dense-play channel and freezes nested effect records', () => {
+    const effects = new EffectsSystem({ random: () => 0.5 });
+    for (let index = 0; index < 500; index += 1) {
+      effects.consume([
+        { type: 'blockSpawned', block: { id: index, lane: index % 6, color: 'coral', distance: 520, speed: 200 } },
+        { type: 'blockLanded', block: { id: index, color: 'coral' }, cell: { side: index % 6, index: 0 } },
+        { type: 'matchCleared', cells: [{ side: index % 6, index: 0 }], color: 'coral', chain: 4 },
+        { type: 'anomalyWarning', anomalies: ['drift'], lanes: [index % 6], warningMs: 2500, atActiveMs: index * 100 },
+      ]);
+    }
+    const state = effects.snapshot();
+    expect(state.assemblies.length).toBeLessThanOrEqual(36);
+    expect(state.landings.length).toBeLessThanOrEqual(36);
+    expect(state.anticipations.length).toBeLessThanOrEqual(36);
+    expect(state.fragments.length).toBeLessThanOrEqual(180);
+    expect(state.shockwaves.length).toBeLessThanOrEqual(12);
+    expect(state.labels.length).toBeLessThanOrEqual(6);
+    expect(state.anomalyCues.length).toBeLessThanOrEqual(4);
+    expect(Object.isFrozen(state.anomalyCues)).toBe(true);
+    expect(Object.isFrozen(state.anomalyCues[0])).toBe(true);
+    expect(Object.isFrozen(state.anomalyCues[0]?.lanes)).toBe(true);
+  });
+
   it('caps fragments, expires transient impulses, and exposes immutable snapshots', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([
@@ -206,8 +251,12 @@ describe('EffectsSystem', () => {
 
     expect(effects.snapshot()).toEqual({
       reducedMotion: false,
+      anticipations: [],
       assemblies: [],
+      landings: [],
       fragments: [],
+      anomalyCues: [],
+      slowTrailRemainingMs: 0,
       bonusImpact: null,
       particles: [],
       flashes: [],

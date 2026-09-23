@@ -253,7 +253,7 @@ describe('progression rendering', () => {
     expect(text).toContainEqual(expect.objectContaining({ value: '⌁' }));
   });
 
-  it('keeps reduced motion free of assembly transforms and traveling fragments', () => {
+  it('keeps reduced motion free of transforms and fragments while retaining a local contour', () => {
     const { renderer, scales, polygons, strokes } = surface();
     const block = { id: 13, color: 'sky' as const, lane: 0, distance: 420, speed: 0 };
     const fx = new EffectsSystem({ random: () => 0.5, reducedMotion: true });
@@ -271,7 +271,7 @@ describe('progression rendering', () => {
 
     expect(scales.some(([x, y]) => Math.abs(x - 0.72) < 0.01 && Math.abs(y - 0.72) < 0.01)).toBe(false);
     expect(polygons.filter(({ points }) => points.length === 3 || points.length === 5)).toHaveLength(0);
-    expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.ink)).toHaveLength(1);
+    expect(strokes.filter(({ points, style }) => points.length === 6 && style === VISUAL_COLORS.ink)).toHaveLength(2);
   });
 
   it('reverses guide motion without changing attached stack geometry and keeps pressure compression within four percent', () => {
@@ -298,7 +298,7 @@ describe('progression rendering', () => {
     const effects: EffectsSnapshot = {
       ...baseEffects(),
       shake: { magnitude: 8, remainingMs: 100 },
-      shockwaves: [{ x: 10, y: 20, color: 'ivory', ageMs: 100, lifetimeMs: 500, intensity: 1 }],
+      shockwaves: [{ kind: 'clear', delayMs: 0, x: 10, y: 20, color: 'ivory', ageMs: 100, lifetimeMs: 500, intensity: 1 }],
       labels: [{ text: 'CHAIN ×2', tone: 'amber', ageMs: 100, lifetimeMs: 600 }],
       screenFlash: { tone: 'coral', intensity: 0.75, remainingMs: 80 },
     };

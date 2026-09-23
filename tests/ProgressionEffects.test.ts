@@ -36,7 +36,7 @@ describe('progression effects', () => {
     ]);
   });
 
-  it('marks bonus collection with a seventy-millisecond visual hold and one origin ring', () => {
+  it('marks bonus collection with a ninety-millisecond visual hold and one origin ring', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
     effects.consume([{
@@ -46,11 +46,11 @@ describe('progression effects', () => {
     }], { center: { x: 10, y: 20 } });
 
     const snapshot = effects.snapshot();
-    expect(snapshot.hitStopRemainingMs).toBe(70);
+    expect(snapshot.hitStopRemainingMs).toBe(90);
     expect(snapshot.shake).toEqual({ magnitude: 0, remainingMs: 0 });
     expect(snapshot.shockwaves).toHaveLength(1);
     expect(snapshot.shockwaves[0]).toMatchObject({
-      color: 'ivory', ageMs: 0, lifetimeMs: 260, intensity: 0.6,
+      kind: 'collection', delayMs: 90, color: 'ivory', ageMs: 0, lifetimeMs: 260, intensity: 0.6,
     });
     expect(snapshot.shockwaves[0]?.x).toBeCloseTo(10 + Math.cos(Math.PI / 6) * 72);
     expect(snapshot.shockwaves[0]?.y).toBeCloseTo(56);
@@ -78,7 +78,7 @@ describe('progression effects', () => {
       screenFlash: { tone: 'coral', intensity: 0.75, remainingMs: 100 },
     });
     expect(effects.snapshot().fragments).toHaveLength(8);
-    expect(effects.snapshot().fragments[0]).toMatchObject({ color: 'teal', anticipationMs: 100 });
+    expect(effects.snapshot().fragments[0]).toMatchObject({ color: 'teal', anticipationMs: 80 });
     expect(effects.snapshot().fragments[0]!.vy).toBeLessThan(0);
   });
 
@@ -89,22 +89,75 @@ describe('progression effects', () => {
     cleanse.consume([{
       type: 'bonusRemoved', bonus: 'cleanse', cells, blocks, scoreDelta: 80,
     }]);
-    expect(cleanse.snapshot().fragments[0]?.anticipationMs).toBe(100);
-    expect(cleanse.snapshot().fragments[8]?.anticipationMs).toBe(128);
+    expect(cleanse.snapshot().fragments[0]?.anticipationMs).toBe(80);
+    expect(cleanse.snapshot().fragments[8]?.anticipationMs).toBe(108);
 
     const colorBreak = new EffectsSystem({ random: () => 0.5 });
     colorBreak.consume([{
       type: 'bonusRemoved', bonus: 'colorBreak', cells, blocks, scoreDelta: 80,
     }]);
-    expect(colorBreak.snapshot().fragments[0]?.anticipationMs).toBe(100);
-    expect(colorBreak.snapshot().fragments[8]?.anticipationMs).toBe(124);
+    expect(colorBreak.snapshot().fragments[0]?.anticipationMs).toBe(80);
+    expect(colorBreak.snapshot().fragments[8]?.anticipationMs).toBe(104);
 
     const pulse = new EffectsSystem({ random: () => 0.5 });
     pulse.consume([{
       type: 'bonusRemoved', bonus: 'pulse', cells, blocks, scoreDelta: 80,
     }]);
-    expect(pulse.snapshot().fragments[0]?.anticipationMs).toBe(100);
-    expect(pulse.snapshot().fragments[8]?.anticipationMs).toBe(120);
+    expect(pulse.snapshot().fragments[0]?.anticipationMs).toBe(80);
+    expect(pulse.snapshot().fragments[8]?.anticipationMs).toBe(100);
+  });
+
+  it.each(['slow', 'pulse', 'cleanse', 'colorBreak'] as const)(
+    'keeps %s activation identifiable when there are no removable blocks',
+    (bonus) => {
+      const effects = new EffectsSystem({ random: () => 0.5 });
+      effects.consume([{ type: 'bonusActivated', bonus }]);
+      const state = effects.snapshot();
+      expect(state.bonusImpact).toMatchObject({ bonus, removedCount: 0 });
+      expect(state.fragments).toEqual([]);
+      if (bonus === 'slow') {
+        expect(state.shockwaves.map(({ kind }) => kind)).toEqual(['slow']);
+        expect(state.slowTrailRemainingMs).toBe(6000);
+      } else if (bonus === 'pulse') {
+        expect(state.shockwaves.map(({ kind, delayMs }) => [kind, delayMs])).toEqual([
+          ['pulse', 0], ['pulse', 42], ['pulse', 84],
+        ]);
+      } else {
+        expect(state.shockwaves.map(({ kind }) => kind)).toEqual([bonus === 'cleanse' ? 'cleanse' : 'colorBreak']);
+      }
+    },
+  );
+
+  it('retains exact CLEANSE target and COLOR BREAK color groups without inventing removals', () => {
+    const cleanse = new EffectsSystem({ random: () => 0.5 });
+    cleanse.consume([{ type: 'bonusRemoved', bonus: 'cleanse', cells: [{ side: 4, index: 2 }], blocks: [{ id: 1, color: 'sky' }], scoreDelta: 80 }]);
+    expect(cleanse.snapshot().bonusImpact).toMatchObject({ targetSide: 4, cutCells: [{ side: 4, index: 2 }] });
+    const colorBreak = new EffectsSystem({ random: () => 0.5 });
+    colorBreak.consume([{ type: 'bonusRemoved', bonus: 'colorBreak', cells: [{ side: 0, index: 0 }, { side: 2, index: 1 }], blocks: [{ id: 2, color: 'teal' }, { id: 3, color: 'teal' }], scoreDelta: 160 }]);
+    expect(colorBreak.snapshot().bonusImpact).toMatchObject({ removedColors: ['teal'] });
+    expect(colorBreak.snapshot().fragments[8]?.anticipationMs).toBe(104);
+    expect(Object.isFrozen(colorBreak.snapshot().bonusImpact?.removedColors)).toBe(true);
+    expect(Object.isFrozen(cleanse.snapshot().bonusImpact?.cutCells[0])).toBe(true);
+  });
+
+  it('exposes truthful warning lanes and actual anomaly destinations, colors, and delayed direction', () => {
+    const effects = new EffectsSystem({ random: () => 0.5 });
+    effects.consume([{ type: 'anomalyWarning', anomalies: ['reverse', 'drift'], lanes: [2, 3], warningMs: 2500, atActiveMs: 119500 }]);
+    expect(effects.snapshot().anomalyCues).toMatchObject([
+      { anomaly: 'reverse', lanes: [2, 3], warning: true, direction: -1 },
+      { anomaly: 'drift', lanes: [2, 3], warning: true, destinationLane: null },
+    ]);
+    effects.consume([{ type: 'anomalyStarted', anomalies: ['drift', 'colorShift', 'mirage', 'inertia'], lanes: [2], atActiveMs: 119500 }]);
+    effects.consume([{ type: 'blockSpawned', block: { id: 4, lane: 2, color: 'coral', distance: 520, speed: 150, driftToLane: 3, shiftToColor: 'teal', mirageLane: 1 } }]);
+    effects.consume([{ type: 'rotationDelayed', steps: -1, remainingMs: 280 }]);
+    expect(effects.snapshot().anomalyCues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ anomaly: 'drift', warning: false, lanes: [2], destinationLane: 3 }),
+      expect.objectContaining({ anomaly: 'colorShift', futureColor: 'teal' }),
+      expect.objectContaining({ anomaly: 'mirage', destinationLane: 1 }),
+      expect.objectContaining({ anomaly: 'inertia', direction: -1, remainingImpulseMs: 280 }),
+    ]));
+    effects.consume([{ type: 'anomalyEnded', anomalies: ['drift'], atActiveMs: 127500 }]);
+    expect(effects.snapshot().anomalyCues.some(({ anomaly }) => anomaly === 'drift')).toBe(false);
   });
 
   it('announces anomaly starts transiently without retaining a cue when they end', () => {
@@ -195,7 +248,7 @@ describe('progression effects', () => {
     expect(effects.snapshot()).toMatchObject({
       reducedMotion: true,
       assemblies: [], fragments: [], bonusImpact: { bonus: 'pulse', removedCount: 0 },
-      particles: [], flashes: [], shockwaves: [],
+      particles: [], flashes: [], shockwaves: [{ ageMs: 0, lifetimeMs: 140 }],
       shake: { magnitude: 0, remainingMs: 0 },
       hitStopRemainingMs: 0,
       screenFlash: null,
@@ -206,6 +259,18 @@ describe('progression effects', () => {
         { text: 'ЦИКЛ 2 ЗАВЕРШЁН', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
       ],
     });
+    expect(effects.snapshot().shockwaves).toHaveLength(1);
+    expect(effects.snapshot().bonusImpact?.lifetimeMs).toBe(140);
+    expect(effects.snapshot().slowTrailRemainingMs).toBe(0);
+  });
+
+  it('does not extend SLOW trails or screen-space motion under reduced motion', () => {
+    const effects = new EffectsSystem({ reducedMotion: true });
+    effects.consume([{ type: 'bonusActivated', bonus: 'slow' }]);
+    expect(effects.snapshot().slowTrailRemainingMs).toBe(0);
+    expect(effects.snapshot().bonusImpact?.lifetimeMs).toBe(140);
+    expect(effects.snapshot().shockwaves).toHaveLength(1);
+    expect(effects.snapshot().shake).toEqual({ magnitude: 0, remainingMs: 0 });
   });
 
   it('clears every progression channel on reset', () => {
