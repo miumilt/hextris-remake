@@ -38,7 +38,7 @@ Task 2: pending
 Task 3: complete
 Task 4: complete
 Task 5: complete
-Task 6: pending
+Task 6: complete
 Task 7: pending
 Task 8: pending
 Task 9: pending
@@ -69,3 +69,6 @@ Task 4 handoffs: Task 6 must change Canvas transfer rendering from old 240/800 b
 
 Task 5: complete (commits 120badd..a9a9de3, independent review/re-review approved with no Critical/Important findings). Bounded anticipations, landings, fragments, delayed shockwaves, bonus identities, anomaly cues, and reduced-motion static cues are modeled and tested. Review fix preserved full 3.2 s double-warning evidence and visible fracture travel for dense COLOR BREAK. Fresh controller verification: 261/261 tests across 24 files, TypeScript, production build/source packaging, and diff check pass. Task 6 is next.
 Task 5 minor (deferred): `MAX_WARNING_CUE_MS = 3_200` duplicates a ThreatDirector warning constant; future changes require synchronized edits. Task 6 must render the new effect channels, respect shockwave delays, avoid a double reduced-motion contour, and preserve readable active-anomaly evidence beyond the 980 ms event cue.
+
+Task 6: complete (commits 689ea28..94cf120, independent review/two scoped re-reviews approved with no Critical/Important findings). The Canvas now uses explicit six-layer order, legible opening and bonus token, truthful DRIFT/INERTIA cue placement, exact 90+800 ms transfer, delayed shockwaves, bounded effects, and reduced-motion local contours. Visual captures were opened at 1280×720; sparse opening contrast was improved and bonus label raised to 12 CSS px. Fresh controller verification: 282/282 tests across 24 files, TypeScript, production build/source packaging, and diff check pass. Task 7 is next.
+Task 6 handoff: runtime `main.ts` still does not call `presentation.beginRun()`; Task 8 owns that integration. Task 7 owns the persistent semantic bonus slot and side-attached DOM warning copy.
