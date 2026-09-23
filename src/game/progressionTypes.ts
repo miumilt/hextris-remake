@@ -66,12 +66,19 @@ export interface ThreatPlan {
   readonly evidence: ThreatEvidence;
 }
 
+export interface ThreatRequest {
+  readonly pattern: WavePattern;
+  readonly anchorLane?: number;
+  readonly anomalies: readonly AnomalyType[];
+}
+
 export type DirectorEvent =
-  | { readonly type: 'phaseChanged'; readonly phase: GamePhase; readonly cycle: number }
-  | { readonly type: 'anomalyWarning'; readonly anomalies: readonly AnomalyType[] }
-  | { readonly type: 'anomalyStarted'; readonly anomalies: readonly AnomalyType[] }
-  | { readonly type: 'anomalyEnded'; readonly anomalies: readonly AnomalyType[] }
-  | { readonly type: 'cycleCompleted'; readonly cycle: number };
+  | { readonly type: 'phaseChanged'; readonly phase: GamePhase; readonly cycle: number; readonly atActiveMs: number }
+  | { readonly type: 'situationPrepared'; readonly plan: ThreatPlan; readonly atActiveMs: number }
+  | { readonly type: 'anomalyWarning'; readonly anomalies: readonly AnomalyType[]; readonly lanes: readonly number[]; readonly warningMs: number; readonly atActiveMs: number }
+  | { readonly type: 'anomalyStarted'; readonly anomalies: readonly AnomalyType[]; readonly lanes: readonly number[]; readonly atActiveMs: number }
+  | { readonly type: 'anomalyEnded'; readonly anomalies: readonly AnomalyType[]; readonly atActiveMs: number }
+  | { readonly type: 'cycleCompleted'; readonly cycle: number; readonly atActiveMs: number };
 
 export interface DirectorTick {
   readonly events: readonly DirectorEvent[];

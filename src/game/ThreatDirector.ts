@@ -1,15 +1,17 @@
 import {
   BUILD_END_MS, CYCLE_DURATION_MS, MAX_FALL_SPEED, MIN_WAVE_INTERVAL_MS,
-  PRESSURE_END_MS, SETTLE_END_MS, SINGLE_ANOMALY_WARNING_MS,
+  PRESSURE_END_MS, SETTLE_END_MS, SIDE_COUNT, SINGLE_ANOMALY_WARNING_MS,
 } from './constants';
 import type {
   ActiveAnomaly, AnomalyType, CycleSnapshot, DirectorEvent, DirectorModifiers,
-  DirectorTick, GamePhase, WaveProfile,
+  DirectorTick, GamePhase, ThreatPlan, ThreatRequest, WaveProfile,
 } from './progressionTypes';
 import type { RandomSource } from './random';
-import type { WavePattern } from './WaveSpawner';
+import { patternLayout, type WavePattern } from './WaveSpawner';
 
 export interface ThreatDirectorOptions {
+  readonly forcedSituationsByCycle?: Readonly<Record<number, ThreatRequest>>;
+  /** Compatibility for legacy test fixtures; the same fairness gates apply. */
   readonly forcedAnomaliesByCycle?: Readonly<Record<number, readonly AnomalyType[]>>;
 }
 
@@ -23,6 +25,43 @@ const COMPATIBLE_ANOMALY_PAIRS: readonly (readonly [AnomalyType, AnomalyType])[]
   ['mirage', 'drift'], ['mirage', 'colorShift'], ['mirage', 'inertia'],
   ['drift', 'colorShift'], ['drift', 'inertia'], ['colorShift', 'inertia'],
 ];
+const PATTERN_COST: Readonly<Record<WavePattern, number>> = {
+  single: 1, pair: 2, opposite: 2, halfCircle: 3, spiral: 4, circle: 5,
+};
+const ANOMALY_COST: Readonly<Record<AnomalyType, number>> = {
+  mirage: 2, drift: 2, colorShift: 2, reverse: 3, inertia: 3,
+};
+const PHASE_BUDGET: Readonly<Record<GamePhase, number>> = { settle: 3, build: 6, pressure: 9, release: 0 };
+const WEAK_ANOMALIES = new Set<AnomalyType>(['mirage', 'drift', 'colorShift']);
+const PATTERNS = Object.keys(PATTERN_COST) as WavePattern[];
+const planCost = (request: ThreatRequest): number => PATTERN_COST[request.pattern]
+  + request.anomalies.reduce((sum, anomaly) => sum + ANOMALY_COST[anomaly], 0)
+  + (request.anomalies.length === 2 ? 2 : 0);
+const combinationKey = (request: ThreatRequest): string =>
+  `${request.pattern}:${ANOMALIES.filter((type) => request.anomalies.includes(type)).join('+')}`;
+const budgetAt = (phase: GamePhase, activeMs: number): number =>
+  PHASE_BUDGET[phase] + Math.min(3, Math.floor(activeMs / 180_000));
+const preparedAt = (cycle: number): number => (cycle - 1) * CYCLE_DURATION_MS + SETTLE_END_MS;
+
+function legalRequest(request: ThreatRequest, phase: GamePhase, activeMs: number): boolean {
+  const { anomalies, pattern } = request;
+  if (!PATTERNS.includes(pattern) || anomalies.some((type) => !ANOMALIES.includes(type))) return false;
+  if (request.anchorLane !== undefined && (!Number.isInteger(request.anchorLane) || request.anchorLane < 0 || request.anchorLane >= SIDE_COUNT)) return false;
+  if (anomalies.length > 2 || new Set(anomalies).size !== anomalies.length) return false;
+  if (phase === 'release') return anomalies.length === 0 && pattern === 'single';
+  if (activeMs < 90_000 && anomalies.length > 0) return false;
+  if (activeMs < 360_000 && anomalies.length > 1) return false;
+  if (anomalies.includes('reverse') && anomalies.includes('inertia')) return false;
+  if (anomalies.length === 2 && (pattern === 'circle' || pattern === 'spiral')) return false;
+  const immediateByLane = new Map<number, number>();
+  for (const entry of patternLayout(pattern, request.anchorLane ?? 0)) {
+    if (entry.delayMs !== 0) continue;
+    const count = (immediateByLane.get(entry.lane) ?? 0) + 1;
+    if (count > 2) return false;
+    immediateByLane.set(entry.lane, count);
+  }
+  return planCost(request) <= budgetAt(phase, activeMs);
+}
 const PATTERN_WEIGHTS: readonly {
   readonly throughCycle: number;
   readonly weights: Readonly<Record<WavePattern, number>>;
@@ -72,14 +111,30 @@ export class ThreatDirector {
   private warning: AnomalyType[] = [];
   private warningRemainingMs = 0;
   private anomalies: MutableAnomaly[] = [];
-  private readonly forcedAnomaliesByCycle: Readonly<Record<number, readonly AnomalyType[]>>;
+  private currentThreat: ThreatPlan | null = null;
+  private lastPressureCombination: string | null = null;
+  private readonly anomalyCooldowns = new Map<AnomalyType, number>();
+  private readonly forcedSituationsByCycle: Readonly<Record<number, ThreatRequest>>;
 
   public constructor(private readonly random: RandomSource, options: ThreatDirectorOptions = {}) {
-    const forced = options.forcedAnomaliesByCycle ?? {};
-    if (Object.values(forced).some((anomalies) => anomalies.includes('reverse') && anomalies.includes('inertia'))) {
-      throw new RangeError('reverse and inertia anomalies are incompatible');
+    const forced: Record<number, ThreatRequest> = {};
+    for (const [cycle, anomalies] of Object.entries(options.forcedAnomaliesByCycle ?? {})) {
+      forced[Number(cycle)] = { pattern: 'single', anomalies };
     }
-    this.forcedAnomaliesByCycle = forced;
+    Object.assign(forced, options.forcedSituationsByCycle);
+    for (const [key, request] of Object.entries(forced)) {
+      const cycle = Number(key);
+      if (!Number.isInteger(cycle) || cycle < 1 || !legalRequest(request, 'pressure', preparedAt(cycle))) {
+        throw new RangeError(`Illegal threat request for cycle ${cycle}`);
+      }
+      const previous = forced[cycle - 1];
+      if (previous && (combinationKey(previous) === combinationKey(request)
+        || request.anomalies.some((type) => previous.anomalies.includes(type)))) {
+        throw new RangeError(`Threat cooldown violated in cycle ${cycle}`);
+      }
+      forced[cycle] = freeze({ ...request, anomalies: freeze([...request.anomalies]) });
+    }
+    this.forcedSituationsByCycle = freeze(forced);
     this.reset();
   }
 
@@ -117,7 +172,7 @@ export class ThreatDirector {
       warning: freeze([...this.warning]),
       warningRemainingMs: this.warningRemainingMs,
       anomalies: freeze(this.anomalies.map((anomaly) => freeze<ActiveAnomaly>({ ...anomaly }))),
-      threat: null,
+      threat: this.currentThreat,
     });
   }
 
@@ -130,7 +185,7 @@ export class ThreatDirector {
       intervalMs,
       speed: baseSpeedAt(this.totalActiveMs),
       patternWeights: freeze({ ...this.patternWeights() }),
-      forcedPattern: null,
+      forcedPattern: this.phase === 'release' ? 'single' : this.phase === 'pressure' ? this.currentThreat!.pattern : null,
       forcedPatternSequence: null,
     });
   }
@@ -154,21 +209,24 @@ export class ThreatDirector {
     this.awaitingUpgrade = false;
     this.bonusRemainingMs = null;
     this.deferredBonus = false;
+    this.anomalyCooldowns.clear();
+    this.lastPressureCombination = null;
     this.startCycle();
   }
 
   private startCycle(): void {
     this.phase = 'settle';
     this.elapsedMs = 0;
+    this.currentThreat = this.prepareThreat();
     this.resetAnomalySchedule();
   }
 
   private advance(stepMs: number): void {
     this.elapsedMs = canonicalMs(this.elapsedMs + stepMs);
-    this.totalActiveMs = canonicalMs(this.totalActiveMs + stepMs);
-    if (!this.deferredBonus && this.bonusRemainingMs !== null) this.bonusRemainingMs -= stepMs;
-    if (this.warning.length > 0) this.warningRemainingMs -= stepMs;
-    for (const anomaly of this.anomalies) anomaly.remainingMs -= stepMs;
+    this.totalActiveMs = canonicalMs((this.cycleNumber - 1) * CYCLE_DURATION_MS + this.elapsedMs);
+    if (!this.deferredBonus && this.bonusRemainingMs !== null) this.bonusRemainingMs = canonicalMs(this.bonusRemainingMs - stepMs);
+    if (this.warning.length > 0) this.warningRemainingMs = canonicalMs(this.warningRemainingMs - stepMs);
+    for (const anomaly of this.anomalies) anomaly.remainingMs = canonicalMs(anomaly.remainingMs - stepMs);
   }
 
   private nextBoundaryMs(): number {
@@ -182,41 +240,51 @@ export class ThreatDirector {
 
   private processBoundaries(modifiers: DirectorModifiers, events: DirectorEvent[]): boolean {
     let bonusDue = false;
-    if (this.deferredBonus && this.phase === 'settle' && this.elapsedMs > 0) {
-      bonusDue = true;
-      this.scheduleNextBonus(modifiers);
-    }
     if (this.warningAtMs !== null && this.elapsedMs >= this.warningAtMs) {
-      this.warning = this.selectAnomalies();
+      this.warning = [...this.currentThreat!.anomalies];
       this.warningAtMs = null;
-      this.warningRemainingMs = SINGLE_ANOMALY_WARNING_MS;
-      events.push({ type: 'anomalyWarning', anomalies: [...this.warning] });
+      this.warningRemainingMs = this.currentThreat!.warningMs;
+      events.push({ type: 'anomalyWarning', anomalies: [...this.warning], lanes: this.currentThreat!.lanes,
+        warningMs: this.warningRemainingMs, atActiveMs: this.totalActiveMs });
     } else if (this.warning.length > 0 && this.warningRemainingMs <= 0) {
       this.anomalies = this.warning.map((type) => ({
         type,
         remainingMs: Math.max(4_000, ANOMALY_DURATION_MS[type] * modifiers.anomalyDurationMultiplier),
       }));
       this.warning = [];
-      events.push({ type: 'anomalyStarted', anomalies: this.anomalies.map(({ type }) => type) });
+      events.push({ type: 'anomalyStarted', anomalies: this.anomalies.map(({ type }) => type),
+        lanes: this.currentThreat!.lanes, atActiveMs: this.totalActiveMs });
     }
     const expired = this.anomalies.filter(({ remainingMs }) => remainingMs <= 0).map(({ type }) => type);
     if (expired.length > 0) {
       this.anomalies = this.anomalies.filter(({ remainingMs }) => remainingMs > 0);
-      events.push({ type: 'anomalyEnded', anomalies: expired });
+      events.push({ type: 'anomalyEnded', anomalies: expired, atActiveMs: this.totalActiveMs });
     }
 
     const nextPhase = phaseAt(this.elapsedMs);
     if (nextPhase !== this.phase) {
       this.phase = nextPhase;
-      events.push({ type: 'phaseChanged', phase: this.phase, cycle: this.cycleNumber });
+      events.push({ type: 'phaseChanged', phase: this.phase, cycle: this.cycleNumber, atActiveMs: this.totalActiveMs });
+      if (this.phase === 'build') {
+        events.push({ type: 'situationPrepared', plan: this.currentThreat!, atActiveMs: this.totalActiveMs });
+      } else if (this.phase === 'release') {
+        if (this.anomalies.length > 0) events.push({ type: 'anomalyEnded',
+          anomalies: this.anomalies.map(({ type }) => type), atActiveMs: this.totalActiveMs });
+        this.currentThreat = null;
+        this.resetAnomalySchedule();
+      }
     }
     if (this.elapsedMs >= CYCLE_DURATION_MS) {
-      events.push({ type: 'cycleCompleted', cycle: this.cycleNumber });
+      events.push({ type: 'cycleCompleted', cycle: this.cycleNumber, atActiveMs: this.totalActiveMs });
       if (this.cycleNumber % 3 === 0) this.awaitingUpgrade = true;
       else {
         this.cycleNumber += 1;
         this.startCycle();
       }
+    }
+    if (this.deferredBonus && this.phase === 'settle') {
+      bonusDue = true;
+      this.scheduleNextBonus(modifiers);
     }
     if (!this.deferredBonus && this.bonusRemainingMs !== null && this.bonusRemainingMs <= 0) {
       if (this.phase === 'release') this.deferredBonus = true;
@@ -240,16 +308,38 @@ export class ThreatDirector {
     this.warning = [];
     this.warningRemainingMs = 0;
     this.anomalies = [];
-    if (this.cycleNumber >= 2) this.warningAtMs = 20_000 + Math.floor(this.random.next() * 8_001);
+    if (this.currentThreat && this.currentThreat.anomalies.length > 0) this.warningAtMs = 42_000;
   }
 
-  private selectAnomalies(): AnomalyType[] {
-    const forced = this.forcedAnomaliesByCycle[this.cycleNumber];
-    if (forced) return [...forced];
-    if (this.cycleNumber >= 6 && this.random.next() < 0.45) {
-      return [...COMPATIBLE_ANOMALY_PAIRS[Math.floor(this.random.next() * COMPATIBLE_ANOMALY_PAIRS.length)]!];
-    }
-    return [ANOMALIES[Math.floor(this.random.next() * ANOMALIES.length)]!];
+  private prepareThreat(): ThreatPlan {
+    const activeMs = preparedAt(this.cycleNumber);
+    const forced = this.forcedSituationsByCycle[this.cycleNumber];
+    const anomalySets: readonly (readonly AnomalyType[])[] = activeMs < 90_000
+      ? [[]] : [...ANOMALIES.map((type) => [type]), ...COMPATIBLE_ANOMALY_PAIRS];
+    const candidates: readonly ThreatRequest[] = forced ? [forced]
+      : PATTERNS.flatMap((pattern) => anomalySets.map((anomalies) => ({ pattern, anomalies })));
+    const nextForced = this.forcedSituationsByCycle[this.cycleNumber + 1];
+    const legal = candidates.filter((request) => legalRequest(request, 'pressure', activeMs)
+      && combinationKey(request) !== this.lastPressureCombination
+      && !request.anomalies.some((type) => this.anomalyCooldowns.get(type) === this.cycleNumber - 1)
+      && (!nextForced || (combinationKey(request) !== combinationKey(nextForced)
+        && !request.anomalies.some((type) => nextForced.anomalies.includes(type)))));
+    if (legal.length === 0) throw new RangeError(`No legal threat for cycle ${this.cycleNumber}`);
+    const request = legal[Math.floor(this.random.next() * legal.length)]!;
+    const anchorLane = request.anchorLane ?? Math.floor(this.random.next() * SIDE_COUNT);
+    const lanes = freeze(patternLayout(request.pattern, anchorLane).map(({ lane }) => lane));
+    const key = combinationKey(request);
+    this.lastPressureCombination = key;
+    for (const anomaly of request.anomalies) this.anomalyCooldowns.set(anomaly, this.cycleNumber);
+    const entryDelayMs = PATTERN_COST[request.pattern] >= 4
+      && request.anomalies.some((type) => !WEAK_ANOMALIES.has(type)) ? 450 : 0;
+    return freeze({
+      pattern: request.pattern, anchorLane, lanes, anomalies: freeze([...request.anomalies]),
+      warningMs: request.anomalies.length === 2 ? 3_200 : request.anomalies.length === 1 ? SINGLE_ANOMALY_WARNING_MS : 0,
+      entryDelayMs, bonusIncompatible: request.anomalies.length === 2 || entryDelayMs > 0,
+      evidence: freeze({ seedCycle: this.cycleNumber, phase: 'pressure', budget: budgetAt('pressure', activeMs),
+        spent: planCost(request), combinationKey: key }),
+    });
   }
 
   private scheduleNextBonus(modifiers: DirectorModifiers): void {
@@ -259,7 +349,13 @@ export class ThreatDirector {
   }
 
   private patternWeights(): Readonly<Record<WavePattern, number>> {
-    return PATTERN_WEIGHTS.find(({ throughCycle }) => this.cycleNumber <= throughCycle)!.weights;
+    const weights = { ...PATTERN_WEIGHTS.find(({ throughCycle }) => this.cycleNumber <= throughCycle)!.weights };
+    for (const pattern of PATTERNS) {
+      if (this.phase === 'release' || (this.phase === 'settle' && PATTERN_COST[pattern] > 2)
+        || (this.phase === 'build' && pattern === 'circle')) weights[pattern] = 0;
+    }
+    if (this.phase === 'release') weights.single = 1;
+    return weights;
   }
 
   private frozenTick(events: readonly DirectorEvent[], bonusDue: boolean, upgradeDue: boolean, consumedMs: number): DirectorTick {

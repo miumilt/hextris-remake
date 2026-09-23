@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GameEngine } from '../src/game/GameEngine';
 import { HexGrid } from '../src/game/HexGrid';
+import type { GameEvent } from '../src/game/types';
 
 function progressionGame(randomSeed = 1): GameEngine {
   return new GameEngine({ randomSeed, spawning: false, maxStackDepth: 20 });
@@ -10,6 +11,14 @@ function assertDeepFrozen(value: unknown): void {
   if (value === null || typeof value !== 'object') return;
   expect(Object.isFrozen(value)).toBe(true);
   for (const nested of Object.values(value)) assertDeepFrozen(nested);
+}
+
+function untilEvent(game: GameEngine, type: GameEvent['type']): readonly GameEvent[] {
+  for (let elapsed = 0; elapsed < 90_000; elapsed += 50) {
+    const events = game.update(50);
+    if (events.some((event) => event.type === type)) return events;
+  }
+  throw new Error(`No ${type} event within 90 active seconds`);
 }
 
 describe('GameEngine threat progression', () => {
@@ -33,18 +42,18 @@ describe('GameEngine threat progression', () => {
     game.start();
 
     const first = game.update(75_000);
-    expect(first).toContainEqual({ type: 'cycleCompleted', cycle: 1 });
+    expect(first).toContainEqual({ type: 'cycleCompleted', cycle: 1, atActiveMs: 75_000 });
     expect(first.some(({ type }) => type === 'upgradeOffered')).toBe(false);
     expect(game.getSnapshot()).toMatchObject({ mode: 'playing', cycle: { number: 2, phase: 'settle' } });
 
     const second = game.update(75_000);
-    expect(second).toContainEqual({ type: 'cycleCompleted', cycle: 2 });
+    expect(second).toContainEqual({ type: 'cycleCompleted', cycle: 2, atActiveMs: 150_000 });
     expect(second.some(({ type }) => type === 'upgradeOffered')).toBe(false);
     expect(game.getSnapshot()).toMatchObject({ mode: 'playing', cycle: { number: 3, phase: 'settle' } });
 
     const third = game.update(75_000);
     expect(third).toEqual(expect.arrayContaining([
-      { type: 'cycleCompleted', cycle: 3 },
+      { type: 'cycleCompleted', cycle: 3, atActiveMs: 225_000 },
       expect.objectContaining({ type: 'upgradeOffered' }),
     ]));
     expect(game.getSnapshot().mode).toBe('upgrade');
@@ -70,7 +79,7 @@ describe('GameEngine threat progression', () => {
     });
     game.start();
     game.update(75_000);
-    for (let elapsedMs = 0; elapsedMs < 30_000 && game.getSnapshot().cycle.warning.length === 0; elapsedMs += 1_000) {
+    for (let elapsedMs = 0; elapsedMs < 42_000 && game.getSnapshot().cycle.warning.length === 0; elapsedMs += 1_000) {
       game.update(1_000);
     }
 
@@ -79,25 +88,25 @@ describe('GameEngine threat progression', () => {
 
   it('lands scheduled bonus tokens into the one-slot inventory without adding a stack block', () => {
     const game = progressionGame(1); game.start();
-    expect(game.update(32_517)).toContainEqual(expect.objectContaining({ type: 'bonusScheduled' }));
-    expect(game.update(3_000)).toContainEqual(expect.objectContaining({ type: 'bonusCollected', bonus: 'colorBreak' }));
+    expect(untilEvent(game, 'bonusScheduled')).toContainEqual(expect.objectContaining({ type: 'bonusScheduled' }));
+    expect(untilEvent(game, 'bonusCollected')).toContainEqual(expect.objectContaining({ type: 'bonusCollected', bonus: 'colorBreak' }));
     expect(game.getSnapshot()).toMatchObject({ bonus: { stored: 'colorBreak' }, fallingBonuses: [] });
     expect(game.getSnapshot().stacks.every((stack) => stack.length === 0)).toBe(true);
   });
 
   it('replaces an occupied bonus slot when the next scheduled token lands', () => {
     const game = progressionGame(1); game.start();
-    game.update(32_517); game.update(3_000); game.update(26_984);
-    expect(game.update(3_000)).toContainEqual({ type: 'bonusReplaced', previous: 'colorBreak', replacement: 'slow' });
+    untilEvent(game, 'bonusCollected');
+    expect(untilEvent(game, 'bonusReplaced')).toContainEqual({ type: 'bonusReplaced', previous: 'colorBreak', replacement: 'slow' });
     expect(game.getSnapshot().bonus.stored).toBe('slow');
   });
 
   it('activates a removal bonus before overflow and consumes an empty removal bonus', () => {
-    const game = progressionGame(1); game.start(); game.update(32_517); game.update(3_000);
+    const game = progressionGame(1); game.start(); untilEvent(game, 'bonusCollected');
     game.debugAttachGroup('coral', [{ side: 0, count: 2 }]); game.enqueue({ type: 'activateBonus' });
     expect(game.update(0).map(({ type }) => type)).toEqual(['bonusActivated', 'bonusRemoved']);
     expect(game.getSnapshot().stacks[0]).toEqual([]);
-    game.update(26_984); game.update(3_000); game.enqueue({ type: 'activateBonus' });
+    untilEvent(game, 'bonusCollected'); game.enqueue({ type: 'activateBonus' });
     expect(game.update(0)).toEqual([{ type: 'bonusActivated', bonus: 'slow' }]);
   });
 
@@ -151,7 +160,7 @@ describe('GameEngine threat progression', () => {
       game.enqueue({ type: 'confirmUpgrade' }); game.update(0);
     }
     const events = game.update(225_000);
-    expect(events).toContainEqual({ type: 'cycleCompleted', cycle: 48 });
+    expect(events).toContainEqual({ type: 'cycleCompleted', cycle: 48, atActiveMs: 3_600_000 });
     expect(game.getSnapshot()).toMatchObject({ mode: 'playing', score: 4_800, cycle: { number: 49 } });
   });
 

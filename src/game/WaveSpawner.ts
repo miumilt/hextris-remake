@@ -38,15 +38,21 @@ function normalizeLane(lane: number): number {
   return ((lane % SIDE_COUNT) + SIDE_COUNT) % SIDE_COUNT;
 }
 
+export function patternLayout(pattern: WavePattern, anchor: number): readonly { readonly lane: number; readonly delayMs: number }[] {
+  return OFFSETS[pattern].map((offset, index) => ({
+    lane: normalizeLane(anchor + offset),
+    delayMs: pattern === 'spiral' ? index * 160 : 0,
+  }));
+}
+
 function buildPattern(pattern: WavePattern, anchor: number, colorIndexes: readonly number[]): PatternEntry[] {
   if (colorIndexes.length === 0) {
     throw new RangeError('colorIndexes must not be empty');
   }
 
-  return OFFSETS[pattern].map((offset, index) => ({
-    lane: normalizeLane(anchor + offset),
+  return patternLayout(pattern, anchor).map((entry, index) => ({
+    ...entry,
     color: BLOCK_COLORS[colorIndexes[index % colorIndexes.length]! % BLOCK_COLORS.length]!,
-    delayMs: pattern === 'spiral' ? index * 160 : 0,
   }));
 }
 

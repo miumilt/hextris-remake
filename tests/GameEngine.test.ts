@@ -177,6 +177,7 @@ describe('GameEngine', () => {
   it('restart and return to menu clear transient match state', () => {
     const game = new GameEngine({ spawning: false });
     game.start();
+    const initialThreat = game.getSnapshot().cycle.threat;
     game.debugAttachGroup('coral', [{ side: 0, count: 3 }]);
     game.debugSpawn({ lane: 1, color: 'teal', speed: 100 });
     game.update(10);
@@ -194,7 +195,7 @@ describe('GameEngine', () => {
       falling: [],
       cycle: {
         number: 1, phase: 'settle', elapsedMs: 0, totalActiveMs: 0, durationMs: 75_000, progress: 0,
-        warning: [], warningRemainingMs: 0, anomalies: [], threat: null,
+        warning: [], warningRemainingMs: 0, anomalies: [], threat: initialThreat,
       },
       bonus: { stored: null, slowRemainingMs: 0 },
       fallingBonuses: [],

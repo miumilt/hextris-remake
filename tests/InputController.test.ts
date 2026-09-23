@@ -67,7 +67,7 @@ describe('InputController', () => {
   });
   it('activates the stored bonus with Space only while playing', () => {
     const { game } = setup();
-    game.update(32_517);
+    game.update(42_000);
     game.update(3_000);
     expect(game.getSnapshot().bonus.stored).not.toBeNull();
     const event = new KeyboardEvent('keydown', { key: ' ', cancelable: true });

@@ -1,39 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import { GameEngine } from '../src/game/GameEngine';
-import type { AnomalyType, DirectorEvent } from '../src/game/progressionTypes';
+import type { AnomalyType, DirectorEvent, ThreatRequest } from '../src/game/progressionTypes';
 import type { GameEvent } from '../src/game/types';
 
 function gameFor(anomalies: readonly AnomalyType[]): GameEngine {
+  const cycle = anomalies.length > 1 ? 6 : 2;
+  const forcedSituationsByCycle: Record<number, ThreatRequest> = {
+    [cycle]: { pattern: 'single', anchorLane: 0, anomalies },
+  };
+  if (cycle === 6) forcedSituationsByCycle[5] = { pattern: 'pair', anomalies: [] };
   const game = new GameEngine({
     randomSeed: 73,
     spawning: false,
     maxStackDepth: 20,
-    cycle: { forcedAnomaliesByCycle: { 2: anomalies } },
+    cycle: { forcedSituationsByCycle },
   });
   game.start();
-  game.update(75_000);
-  expect(game.getSnapshot()).toMatchObject({ mode: 'playing', cycle: { number: 2 } });
+  while (game.getSnapshot().cycle.number < cycle) {
+    game.update(75_000);
+    if (game.getSnapshot().mode === 'upgrade') {
+      game.enqueue({ type: 'confirmUpgrade' });
+      game.update(0);
+    }
+  }
+  expect(game.getSnapshot()).toMatchObject({ mode: 'playing', cycle: { number: cycle } });
   return game;
 }
 
 function reachWarning(game: GameEngine): DirectorEvent[] {
-  const events: DirectorEvent[] = [...game.update(20_000).filter(isDirectorEvent)];
-  for (let elapsed = 0; elapsed <= 8_001 && !events.some((event) => event.type === 'anomalyWarning'); elapsed += 1) {
-    events.push(...game.update(1).filter(isDirectorEvent));
-  }
+  const events: DirectorEvent[] = [...game.update(42_000).filter(isDirectorEvent)];
   expect(events).toContainEqual(expect.objectContaining({ type: 'anomalyWarning' }));
-  expect(game.getSnapshot().cycle.warningRemainingMs).toBe(2_500);
+  expect(game.getSnapshot().cycle.warningRemainingMs).toBe(game.getSnapshot().cycle.warning.length === 2 ? 3_200 : 2_500);
   return events;
 }
 
 function activate(game: GameEngine): void {
   reachWarning(game);
-  expect(game.update(2_499)).not.toContainEqual(expect.objectContaining({ type: 'anomalyStarted' }));
+  expect(game.update(game.getSnapshot().cycle.warningRemainingMs - 1)).not.toContainEqual(expect.objectContaining({ type: 'anomalyStarted' }));
   expect(game.update(1)).toContainEqual(expect.objectContaining({ type: 'anomalyStarted' }));
 }
 
 function isDirectorEvent(event: GameEvent): event is DirectorEvent {
   return event.type === 'phaseChanged'
+    || event.type === 'situationPrepared'
     || event.type === 'anomalyWarning'
     || event.type === 'anomalyStarted'
     || event.type === 'anomalyEnded'
@@ -54,7 +63,7 @@ describe('telegraphed anomalies', () => {
       falling: [{ lane: 0, color: 'coral' }],
       cycle: { warning: ['reverse'], anomalies: [] },
     });
-    expect(game.update(1)).toContainEqual({ type: 'anomalyStarted', anomalies: ['reverse'] });
+    expect(game.update(1)).toContainEqual({ type: 'anomalyStarted', anomalies: ['reverse'], lanes: [0], atActiveMs: 119_500 });
   });
 
   it('reverses application of a semantic rotation only while active', () => {

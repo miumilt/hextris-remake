@@ -125,8 +125,10 @@ export class GameEngine {
     if (deltaMs < 0 || !Number.isFinite(deltaMs)) throw new RangeError('deltaMs must be finite and non-negative');
 
     if (deltaMs === 0) {
-      const directorTick = this.director.update(0, this.upgrades.getModifiers());
+      const modifiers = this.upgrades.getModifiers();
+      const directorTick = this.director.update(0, modifiers);
       events.push(...directorTick.events);
+      if (directorTick.bonusDue) this.scheduleBonus(this.director.getWaveProfile().speed * modifiers.speedMultiplier, events);
       this.resolveWorld(events);
       if (directorTick.upgradeDue && this.mode === 'playing') this.enterUpgrade(events);
       return Object.freeze(events);
@@ -148,6 +150,10 @@ export class GameEngine {
       }
       const landingMotionMs = this.getNextLandingMotionMs();
       if (landingMotionMs !== null) requestedMs = Math.min(requestedMs, landingMotionMs / motionMultiplier);
+      for (const bonus of this.fallingBonuses) {
+        const collectionMotionMs = (bonus.distance - HEX_APOTHEM) * 1000 / bonus.speed;
+        requestedMs = Math.min(requestedMs, Math.max(0.001, collectionMotionMs) / motionMultiplier);
+      }
       if (this.delayedRotations.length > 0) {
         requestedMs = Math.min(
           requestedMs,

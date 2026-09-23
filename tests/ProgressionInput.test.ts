@@ -77,7 +77,7 @@ describe('progression keyboard input', () => {
     expect(commands).toEqual([]);
     game.update(75_000);
     key(game, 'Enter');
-    for (let attempt = 0; attempt < 30 && game.getSnapshot().cycle.warning.length === 0; attempt += 1) {
+    for (let attempt = 0; attempt < 42 && game.getSnapshot().cycle.warning.length === 0; attempt += 1) {
       game.update(1_000);
     }
     expect(game.getSnapshot().cycle.warning).not.toHaveLength(0);

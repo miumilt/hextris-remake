@@ -110,13 +110,13 @@ describe('progression effects', () => {
   it('announces anomaly starts transiently without retaining a cue when they end', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
-    effects.consume([{ type: 'anomalyStarted', anomalies: ['inertia'] }]);
+    effects.consume([{ type: 'anomalyStarted', anomalies: ['inertia'], lanes: [0], atActiveMs: 119_500 }]);
     expect(effects.snapshot()).toMatchObject({
       labels: [{ text: 'ИНЕРЦИЯ', tone: 'amber', ageMs: 0, lifetimeMs: 620 }],
       screenFlash: { tone: 'amber', intensity: 0.55, remainingMs: 100 },
     });
 
-    effects.consume([{ type: 'anomalyEnded', anomalies: ['inertia'] }]);
+    effects.consume([{ type: 'anomalyEnded', anomalies: ['inertia'], atActiveMs: 127_500 }]);
     for (let update = 0; update < 13; update += 1) effects.update(50);
     expect(effects.snapshot().labels).toEqual([]);
     expect(effects.snapshot().screenFlash).toBeNull();
@@ -127,7 +127,7 @@ describe('progression effects', () => {
 
     effects.consume([
       { type: 'bonusRemoved', bonus: 'colorBreak', cells: [], blocks: [], scoreDelta: 0 },
-      { type: 'anomalyStarted', anomalies: ['colorShift', 'inertia'] },
+      { type: 'anomalyStarted', anomalies: ['colorShift', 'inertia'], lanes: [0], atActiveMs: 420_200 },
     ]);
 
     expect(effects.snapshot().labels.map(({ text }) => text)).toEqual([
@@ -139,7 +139,7 @@ describe('progression effects', () => {
   it('caps surge completion and last stand at the strongest shake and flash', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
-    effects.consume([{ type: 'cycleCompleted', cycle: 2 }]);
+    effects.consume([{ type: 'cycleCompleted', cycle: 2, atActiveMs: 150_000 }]);
     expect(effects.snapshot()).toMatchObject({
       shake: { magnitude: 8, remainingMs: 220 },
       screenFlash: { tone: 'amber', intensity: 1, remainingMs: 160 },
@@ -188,7 +188,7 @@ describe('progression effects', () => {
     effects.consume([
       { type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'sky', chain: 3 },
       { type: 'bonusRemoved', bonus: 'pulse', cells: [], blocks: [], scoreDelta: 0 },
-      { type: 'cycleCompleted', cycle: 2 },
+      { type: 'cycleCompleted', cycle: 2, atActiveMs: 150_000 },
       { type: 'comboChanged', multiplier: 4 },
     ]);
 
@@ -213,7 +213,7 @@ describe('progression effects', () => {
     effects.consume([
       { type: 'matchCleared', cells: [{ side: 0, index: 0 }], color: 'sky', chain: 2 },
       { type: 'bonusRemoved', bonus: 'pulse', cells: [], blocks: [], scoreDelta: 0 },
-      { type: 'anomalyStarted', anomalies: ['reverse'] },
+      { type: 'anomalyStarted', anomalies: ['reverse'], lanes: [0], atActiveMs: 119_500 },
     ]);
 
     effects.reset();

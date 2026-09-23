@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ThreatDirector } from '../src/game/ThreatDirector';
-import type { AnomalyType, DirectorModifiers, WaveProfile } from '../src/game/progressionTypes';
+import type { DirectorEvent, DirectorModifiers, ThreatRequest, WaveProfile } from '../src/game/progressionTypes';
 import type { RandomSource } from '../src/game/random';
 import { SeededRandom } from '../src/game/random';
 
@@ -33,18 +33,36 @@ function advanceToCycle(director: ThreatDirector, target: number): void {
   }
 }
 
+function collectEvents(director: ThreatDirector, durationMs: number): DirectorEvent[] {
+  const events: DirectorEvent[] = [];
+  let remainingMs = durationMs;
+  while (remainingMs > 0) {
+    const tick = director.update(remainingMs, NO_MODIFIERS);
+    events.push(...tick.events);
+    remainingMs -= tick.consumedMs;
+    if (tick.upgradeDue) director.beginNextCycle();
+    if (tick.consumedMs === 0 && !tick.upgradeDue) break;
+  }
+  return events;
+}
+
+const collectPlans = (director: ThreatDirector, durationMs: number) =>
+  collectEvents(director, durationMs).filter(
+    (event): event is Extract<DirectorEvent, { type: 'situationPrepared' }> => event.type === 'situationPrepared',
+  );
+
 describe('ThreatDirector', () => {
   it('uses exact 20/35/15/5 second phases and pauses only after cycle three', () => {
     const director = new ThreatDirector(new SeededRandom(17));
     expect(director.getSnapshot()).toMatchObject({ number: 1, phase: 'settle', durationMs: 75_000 });
     expect(director.update(20_000, NO_MODIFIERS).events).toContainEqual(
-      { type: 'phaseChanged', phase: 'build', cycle: 1 },
+      { type: 'phaseChanged', phase: 'build', cycle: 1, atActiveMs: 20_000 },
     );
     expect(director.update(35_000, NO_MODIFIERS).events).toContainEqual(
-      { type: 'phaseChanged', phase: 'pressure', cycle: 1 },
+      { type: 'phaseChanged', phase: 'pressure', cycle: 1, atActiveMs: 55_000 },
     );
     expect(director.update(15_000, NO_MODIFIERS).events).toContainEqual(
-      { type: 'phaseChanged', phase: 'release', cycle: 1 },
+      { type: 'phaseChanged', phase: 'release', cycle: 1, atActiveMs: 70_000 },
     );
     const finish = director.update(5_000, NO_MODIFIERS);
     expect(finish.upgradeDue).toBe(false);
@@ -88,7 +106,7 @@ describe('ThreatDirector', () => {
     ['reverse', 9_000], ['mirage', 10_000], ['drift', 12_000], ['colorShift', 10_000], ['inertia', 8_000],
   ] as const)('gives %s its exact base duration', (anomaly, durationMs) => {
     const director = new ThreatDirector(new SequenceRandom([0, 0]), { forcedAnomaliesByCycle: { 2: [anomaly] } });
-    advanceToCycle(director, 2); director.update(22_500, NO_MODIFIERS);
+    advanceToCycle(director, 2); director.update(44_500, NO_MODIFIERS);
     expect(director.getSnapshot().anomalies).toEqual([{ type: anomaly, remainingMs: durationMs }]);
   });
 
@@ -100,19 +118,19 @@ describe('ThreatDirector', () => {
 
   it('ends paired anomalies independently at their own durations', () => {
     const director = new ThreatDirector(new SequenceRandom([0, 0]), {
-      forcedAnomaliesByCycle: { 2: ['reverse', 'mirage'] },
+      forcedAnomaliesByCycle: { 5: [], 6: ['reverse', 'mirage'] },
     });
-    advanceToCycle(director, 2); director.update(22_500, NO_MODIFIERS);
-    expect(director.update(9_000, NO_MODIFIERS).events).toContainEqual({ type: 'anomalyEnded', anomalies: ['reverse'] });
+    advanceToCycle(director, 6); director.update(45_200, NO_MODIFIERS);
+    expect(director.update(9_000, NO_MODIFIERS).events).toContainEqual({ type: 'anomalyEnded', anomalies: ['reverse'], atActiveMs: 429_200 });
     expect(director.getSnapshot().anomalies).toEqual([{ type: 'mirage', remainingMs: 1_000 }]);
   });
 
   it('floors shield-scaled anomaly durations independently at four seconds', () => {
     const director = new ThreatDirector(new SequenceRandom([0, 0]), {
-      forcedAnomaliesByCycle: { 2: ['inertia', 'drift'] },
+      forcedAnomaliesByCycle: { 5: [], 6: ['inertia', 'drift'] },
     });
     const shield = { anomalyDurationMultiplier: 0.1, bonusIntervalMultiplier: 1 };
-    advanceToCycle(director, 2); director.update(22_500, shield);
+    advanceToCycle(director, 6); director.update(45_200, shield);
     expect(director.getSnapshot().anomalies).toEqual([
       { type: 'inertia', remainingMs: 4_000 }, { type: 'drift', remainingMs: 4_000 },
     ]);
@@ -144,5 +162,144 @@ describe('ThreatDirector', () => {
     const director = new ThreatDirector(new SequenceRandom([0, 0]), { forcedAnomaliesByCycle: { 2: ['mirage'] } });
     advanceToCycle(director, 2); director.update(22_500, NO_MODIFIERS); director.reset();
     expect(director.getSnapshot()).toMatchObject({ number: 1, phase: 'settle', elapsedMs: 0, totalActiveMs: 0, warning: [], anomalies: [] });
+  });
+
+  it('never starts danger before 90 seconds and requires the full warning', () => {
+    const director = new ThreatDirector(new SeededRandom(3));
+    expect(collectEvents(director, 89_999).some(({ type }) => type === 'anomalyStarted')).toBe(false);
+    const events = collectEvents(director, 30_001);
+    const warning = events.find((event) => event.type === 'anomalyWarning');
+    const started = events.find((event) => event.type === 'anomalyStarted');
+    expect(warning).toMatchObject({ atActiveMs: 117_000, warningMs: 2_500 });
+    expect(started).toMatchObject({ atActiveMs: 119_500 });
+    expect(started!.atActiveMs - warning!.atActiveMs).toBeGreaterThanOrEqual(2_500);
+  });
+
+  it.each([
+    [1, { pattern: 'single', anomalies: ['mirage'] }],
+    [2, { pattern: 'circle', anomalies: ['reverse', 'inertia'] }],
+    [5, { pattern: 'single', anomalies: ['mirage', 'drift'] }],
+    [6, { pattern: 'circle', anomalies: ['mirage', 'drift'] }],
+    [6, { pattern: 'spiral', anomalies: ['mirage', 'drift'] }],
+    [6, { pattern: 'single', anomalies: ['mirage', 'mirage'] }],
+    [6, { pattern: 'single', anomalies: ['mirage', 'drift', 'colorShift'] }],
+    [6, { pattern: 'single', anchorLane: 1.5, anomalies: [] }],
+  ] as const)('rejects an illegal authored request in cycle %i: %j', (cycle, request) => {
+    expect(() => new ThreatDirector(new SeededRandom(1), {
+      forcedSituationsByCycle: { [cycle]: request },
+    })).toThrow(RangeError);
+  });
+
+  it('never repeats pressure combinations or anomaly types in consecutive cycles', () => {
+    const plans = collectPlans(new ThreatDirector(new SeededRandom(11)), 900_000);
+    expect(plans).toHaveLength(12);
+    for (let index = 1; index < plans.length; index += 1) {
+      const previous = plans[index - 1]!.plan;
+      const current = plans[index]!.plan;
+      expect(current.evidence.combinationKey).not.toBe(previous.evidence.combinationKey);
+      expect(current.anomalies.some((type) => previous.anomalies.includes(type))).toBe(false);
+    }
+  });
+
+  it('gates double anomalies by prepared event time and extends their warnings', () => {
+    const plans = collectPlans(new ThreatDirector(new SeededRandom(9)), 900_000);
+    expect(plans.filter(({ atActiveMs }) => atActiveMs < 360_000)).toHaveLength(5);
+    expect(plans.filter(({ atActiveMs }) => atActiveMs < 360_000)
+      .every(({ plan }) => plan.anomalies.length <= 1)).toBe(true);
+    const doubles = plans.filter(({ plan }) => plan.anomalies.length === 2);
+    expect(doubles.length).toBeGreaterThan(0);
+    for (const { plan } of doubles) {
+      expect(plan.warningMs).toBe(3_200);
+      expect(['circle', 'spiral']).not.toContain(plan.pattern);
+    }
+  });
+
+  it.each([
+    ['single', [], 1, 0, false], ['pair', ['mirage'], 4, 0, false],
+    ['opposite', ['drift'], 4, 0, false], ['halfCircle', ['colorShift'], 5, 0, false],
+    ['spiral', ['reverse'], 7, 450, true], ['circle', ['inertia'], 8, 450, true],
+    ['halfCircle', ['mirage', 'drift'], 9, 0, true],
+  ] as const)('explains the exact cost and fairness accommodations for %s with %j', (pattern, anomalies, spent, entryDelayMs, bonusIncompatible) => {
+    const director = new ThreatDirector(new SeededRandom(1), {
+      forcedSituationsByCycle: { 5: { pattern: 'pair', anomalies: [] }, 6: { pattern, anomalies } },
+    });
+    const event = collectPlans(director, 395_000).at(-1)!;
+    expect(event).toBeDefined();
+    expect(event.plan).toMatchObject({ pattern, anomalies, entryDelayMs, bonusIncompatible,
+      evidence: { seedCycle: 6, phase: 'pressure', budget: 11, spent } });
+  });
+
+  it('prepares exactly once at Build with real wrapped lanes and immutable evidence', () => {
+    const director = new ThreatDirector(new SeededRandom(7), {
+      forcedSituationsByCycle: { 2: { pattern: 'halfCircle', anchorLane: 5, anomalies: ['drift'] } },
+    });
+    collectEvents(director, 75_000);
+    expect(collectEvents(director, 19_999).some(({ type }) => type === 'situationPrepared')).toBe(false);
+    const event = collectPlans(director, 1)[0]!;
+    expect(event).toMatchObject({ atActiveMs: 95_000, plan: { anchorLane: 5, lanes: [5, 0, 1] } });
+    expect(director.getSnapshot().threat).toEqual(event.plan);
+    for (const value of [event, event.plan, event.plan.lanes, event.plan.anomalies, event.plan.evidence]) {
+      expect(Object.isFrozen(value)).toBe(true);
+    }
+    const warning = collectEvents(director, 22_000).find(({ type }) => type === 'anomalyWarning')!;
+    expect(warning).toMatchObject({ lanes: [5, 0, 1], anomalies: ['drift'], warningMs: 2_500, atActiveMs: 117_000 });
+    expect(Object.isFrozen((warning as Extract<DirectorEvent, { type: 'anomalyWarning' }>).lanes)).toBe(true);
+    expect(collectPlans(director, 28_000)).toEqual([]);
+  });
+
+  it('restricts phase patterns and clears all complications at Release', () => {
+    const director = new ThreatDirector(new SeededRandom(1), {
+      forcedSituationsByCycle: { 2: { pattern: 'circle', anomalies: ['reverse'] } },
+    });
+    expect(director.getWaveProfile().patternWeights).toMatchObject({ halfCircle: 0, spiral: 0, circle: 0 });
+    director.update(20_000, NO_MODIFIERS);
+    expect(director.getWaveProfile().patternWeights).toMatchObject({ circle: 0 });
+    expect(director.getWaveProfile().patternWeights.spiral).toBeGreaterThan(0);
+    collectEvents(director, 110_000);
+    expect(director.getWaveProfile().forcedPattern).toBe('circle');
+    director.update(15_000, { ...NO_MODIFIERS, anomalyDurationMultiplier: 10 });
+    expect(director.getWaveProfile().forcedPattern).toBe('single');
+    expect(director.getSnapshot()).toMatchObject({ threat: null, warning: [], anomalies: [] });
+    expect(director.update(4_999, NO_MODIFIERS).events).toEqual([]);
+  });
+
+  it('rejects authored adjacent-cycle cooldown and combination violations', () => {
+    const request: ThreatRequest = { pattern: 'pair', anomalies: ['mirage'] };
+    expect(() => new ThreatDirector(new SeededRandom(1), {
+      forcedSituationsByCycle: { 2: request, 3: request },
+    })).toThrow(RangeError);
+  });
+
+  it('keeps full event evidence deterministic across large and split updates', () => {
+    const run = (chunks: readonly number[]) => {
+      const director = new ThreatDirector(new SeededRandom(31));
+      return { events: chunks.flatMap((chunk) => collectEvents(director, chunk)), snapshot: director.getSnapshot() };
+    };
+    expect(run([480_000])).toEqual(run(Array.from({ length: 480 }, () => 1_000)));
+  });
+
+  it('resolves Release-deferred bonuses exactly when Settle starts, including after an upgrade', () => {
+    const director = new ThreatDirector(new SequenceRandom([]));
+    const modifiers = { ...NO_MODIFIERS, bonusIntervalMultiplier: 2.5 };
+    expect(director.update(70_000, modifiers).bonusDue).toBe(false);
+    expect(director.update(5_000, modifiers).bonusDue).toBe(true);
+    expect(director.update(75_000, modifiers).bonusDue).toBe(true);
+    const upgrade = director.update(75_000, modifiers);
+    expect(upgrade).toMatchObject({ bonusDue: false, upgradeDue: true });
+    director.beginNextCycle();
+    expect(director.update(0, modifiers).bonusDue).toBe(true);
+    expect(director.update(0, modifiers).bonusDue).toBe(false);
+  });
+
+  it('keeps event timestamps exact after fractional motion-sized updates over 48 cycles', () => {
+    const director = new ThreatDirector(new SeededRandom(14));
+    const completed = [];
+    for (let cycle = 0; cycle < 48; cycle += 1) {
+      collectEvents(director, 2245.826516416);
+      completed.push(...collectEvents(director, 75_000 - 2245.826516416)
+        .filter((event) => event.type === 'cycleCompleted'));
+    }
+    expect(completed).toHaveLength(48);
+    expect(completed.at(-1)).toEqual({ type: 'cycleCompleted', cycle: 48, atActiveMs: 3_600_000 });
   });
 });
