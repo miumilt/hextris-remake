@@ -35,7 +35,7 @@ Preflight workspace ruling: continue in the existing non-main feature branch and
 
 Task 1: pending
 Task 2: pending
-Task 3: pending
+Task 3: complete
 Task 4: pending
 Task 5: pending
 Task 6: pending
@@ -59,3 +59,6 @@ Task 2: fix round 1/5 (1 addressed, 0 open — flush zero-time director effects 
 Task 2: complete (commits e5f705f..5079ecc, review clean with one deferred minor). Fresh controller verification: 24/24 files and 221/221 tests pass; TypeScript passes. Task 3 is next. Preserve the warning/active reset-test minor for the final whole-branch review.
 
 Task 2: complete. Deterministic threat plans now carry frozen budget, lane, anomaly, timing, and timestamp evidence. Forced and seeded plans obey time gates, compatibility, budget, cooldown, warning, and release rules. The narrow engine boundary fix preserves ordered event and token payloads across 250/500 ms updates and consumes a bonus due at zero time after the third-cycle upgrade. Focused verification: 118/118 tests in 8 files. Full verification: 220/220 tests in 24 files; `npm.cmd run typecheck` and `git diff --check` pass. The exploratory `ThreatProbe.test.ts` was removed after its seed was converted into a deterministic regression. Task 3 remains pending.
+
+Task 3: complete (commit 457fe23..f5b0c3e, independent review approved with no Critical/Important findings). Opening preview and delayed first wave, one-shot authored threat waves, final profile clamps, and strict legal 35–50-second bonus spacing are integrated. Fresh controller verification: 231/231 tests across 24 files, TypeScript, and `git diff --check` pass. Browser smoke test captured the opening and first wave with real controls; no console errors were observed. Task 4 is next.
+Task 3 minor (deferred): add a whole-engine integration test that reaches an authored Pressure wave with spawning enabled; current director and spawner tests cover the pieces independently. Audit the zero-time deferred bonus release path for final speed clamping in the Task 8 integration pass.
