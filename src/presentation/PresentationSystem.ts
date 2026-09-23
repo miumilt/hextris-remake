@@ -42,8 +42,7 @@ export interface OpeningPresentation {
 }
 
 export interface PresentationSnapshot {
-  // Optional during the renderer/HUD migration; snapshots produced here always include opening.
-  readonly opening?: OpeningPresentation | null;
+  readonly opening: OpeningPresentation | null;
   readonly notice: PresentationNotice | null;
   readonly queuedNotices: readonly PresentationNotice[];
   readonly transfer: BonusTransfer | null;

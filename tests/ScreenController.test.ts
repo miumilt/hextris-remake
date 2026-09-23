@@ -16,6 +16,7 @@ describe('ScreenController', () => {
     ...overrides,
   });
   const emptyPresentation = (): PresentationSnapshot => Object.freeze({
+    opening: null,
     notice: null,
     queuedNotices: Object.freeze([]),
     transfer: null,
@@ -91,10 +92,10 @@ describe('ScreenController', () => {
     expect(root.querySelector('[aria-label="Счёт"]')?.textContent).toBe('81');
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('40');
     expect(root.querySelector('[role="progressbar"]')?.getAttribute('aria-valuetext')).toBe('Цикл 2, давление');
-    expect(root.querySelector('[aria-label="Сохранённый бонус: ИМПУЛЬС"]')).not.toBeNull();
+    expect(root.querySelector('[aria-label^="Сохранённый бонус: ИМПУЛЬС"]')).not.toBeNull();
     expect(root.querySelectorAll('.upgrade-mark')).toHaveLength(3);
     expect(root.querySelector('.upgrade-mark')?.getAttribute('title')).toBe('СТАБИЛИЗАТОР — УРОВЕНЬ 1');
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('РЕВЕРС');
+    expect(root.querySelector('.field-warning')?.textContent).toContain('РЕВЕРС');
     expect(root.querySelector('[data-action="pause"]')).not.toBeNull();
 
     screen.render(snapshot({ mode: 'playing' }), emptyPresentation());
@@ -105,6 +106,7 @@ describe('ScreenController', () => {
   it('shows acquisition copy, a readable slot command, attention, and slow time', () => {
     const screen = new ScreenController(root);
     const presentation: PresentationSnapshot = Object.freeze({
+      opening: null,
       notice: Object.freeze({
         title: 'БОНУС: ЗАМЕДЛЕНИЕ',
         body: 'ЗАМЕДЛЯЕТ ПАДАЮЩИЕ БЛОКИ НА 6 СЕКУНД',
@@ -150,7 +152,7 @@ describe('ScreenController', () => {
       bonus: { stored: 'pulse', slowRemainingMs: 2100 },
     }), emptyPresentation());
 
-    expect(root.querySelector('[aria-label="Сохранённый бонус: ИМПУЛЬС"]')).not.toBeNull();
+    expect(root.querySelector('[aria-label^="Сохранённый бонус: ИМПУЛЬС"]')).not.toBeNull();
     expect(root.querySelector('.slow-status')?.classList.contains('with-slot')).toBe(true);
     expect(root.querySelector('[aria-label="Осталось замедления"]')?.getAttribute('aria-valuenow')).toBe('2100');
   });
@@ -158,6 +160,7 @@ describe('ScreenController', () => {
   it('shows the displaced old glyph while its replacement enters the slot', () => {
     const screen = new ScreenController(root);
     const replacement: PresentationSnapshot = Object.freeze({
+      opening: null,
       notice: Object.freeze({
         title: 'ИМПУЛЬС ЗАМЕНИЛ ЗАМЕДЛЕНИЕ', body: 'СБРАСЫВАЕТ КРАЙНИЕ БЛОКИ',
         tone: 'amber', priority: 3, ageMs: 0, lifetimeMs: 950, assertive: false,
@@ -179,6 +182,7 @@ describe('ScreenController', () => {
   it('preserves transient HUD nodes and focus across repeated renders and removal', () => {
     const screen = new ScreenController(root);
     const active: PresentationSnapshot = Object.freeze({
+      opening: null,
       notice: Object.freeze({
         title: 'БОНУС: ИМПУЛЬС',
         body: 'СБРАСЫВАЕТ КРАЙНИЕ БЛОКИ',
@@ -292,8 +296,81 @@ describe('ScreenController', () => {
       cycle: { number: 2, phase: 'build', elapsedMs: 24_000, totalActiveMs: 99_000, durationMs: 75_000, progress: 0.44, warning: ['inertia'], warningRemainingMs: 600, anomalies: [], threat: null },
     });
     screen.render(warning, emptyPresentation());
-    const status = root.querySelector('[role="status"]');
+    const status = root.querySelector('.field-warning');
     screen.render(warning, emptyPresentation());
-    expect(root.querySelector('[role="status"]')).toBe(status);
+    expect(root.querySelector('.field-warning')).toBe(status);
+  });
+
+  it('keeps complete bonus meaning in its slot after acquisition copy expires', () => {
+    const screen = new ScreenController(root);
+    screen.render(snapshot({ mode: 'playing', bonus: { stored: 'pulse', slowRemainingMs: 0 } }), emptyPresentation());
+    const slot = root.querySelector('.bonus-slot');
+    expect(slot?.textContent).toContain('ИМПУЛЬС');
+    expect(slot?.textContent).toContain('СБРАСЫВАЕТ КРАЙНИЕ БЛОКИ');
+    expect(slot?.textContent).toContain('ПРОБЕЛ');
+    expect(slot?.getAttribute('aria-label')).toContain('Сбрасывает крайние блоки');
+    expect(root.querySelector('.presentation-notice')).toBeNull();
+  });
+
+  it('pins warning and overflow danger to the affected sides', () => {
+    const screen = new ScreenController(root);
+    const current = snapshot({ mode: 'playing' });
+    const stacks = current.stacks.map((stack, side) => side === 1
+      ? Array.from({ length: 10 }, (_, id) => ({ id: id + 1, color: 'coral' as const })) : stack);
+    screen.render({
+      ...current, stacks,
+      cycle: { ...current.cycle, warning: ['drift'], warningRemainingMs: 2500,
+        threat: { pattern: 'pair', anchorLane: 4, lanes: [4, 5], anomalies: ['drift'],
+          warningMs: 2500, entryDelayMs: 0, bonusIncompatible: false,
+          evidence: { seedCycle: 2, phase: 'pressure', budget: 6, spent: 4, combinationKey: 'pair:drift:4' } } },
+    }, emptyPresentation());
+    expect(root.querySelector('[data-side="4"].field-warning')?.textContent).toContain('ДРЕЙФ');
+    expect(root.querySelector('[data-side="5"].field-warning')?.textContent).toContain('ДРЕЙФ');
+    expect(root.querySelectorAll('.field-warning[role="status"]')).toHaveLength(1);
+    expect(root.querySelector('[data-side="5"].field-warning')?.getAttribute('aria-hidden')).toBe('true');
+    expect(root.querySelector('[data-side="1"].field-danger')?.textContent).toContain('ОПАСНО');
+    expect(root.querySelector('.danger-panel')).toBeNull();
+  });
+
+  it('rotates an overflowing stack cue with the actual playfield orientation', () => {
+    const screen = new ScreenController(root);
+    const current = snapshot({ mode: 'playing' });
+    const stacks = current.stacks.map((stack, side) => side === 1
+      ? Array.from({ length: 10 }, (_, id) => ({ id: id + 1, color: 'coral' as const })) : stack);
+    screen.render({ ...current, orientation: 2, stacks }, emptyPresentation());
+    expect(root.querySelector('[data-side="5"].field-danger')?.textContent).toBe('ОПАСНО');
+    expect(root.querySelector('[data-side="1"].field-danger')).toBeNull();
+  });
+
+  it('preserves slot, slow progress, notice and focused pause across changing frames', () => {
+    const screen = new ScreenController(root);
+    const active = { ...emptyPresentation(), notice: {
+      title: 'ЗАМЕДЛЕНИЕ АКТИВИРОВАНО', body: 'БЛОКИ ЗАМЕДЛЕНЫ', tone: 'sky' as const,
+      priority: 4 as const, ageMs: 100, lifetimeMs: 900, assertive: false,
+    } };
+    screen.render(snapshot({ mode: 'playing', bonus: { stored: 'slow', slowRemainingMs: 4200 } }), active);
+    const slot = root.querySelector('.bonus-slot');
+    const slow = root.querySelector('.slow-status');
+    const progress = root.querySelector('.slow-rule');
+    const notice = root.querySelector('.presentation-notice');
+    const pause = root.querySelector<HTMLButtonElement>('[data-action="pause"]')!;
+    pause.focus();
+    screen.render(snapshot({ mode: 'playing', score: 99, bonus: { stored: 'slow', slowRemainingMs: 3900 } }),
+      { ...active, notice: { ...active.notice, ageMs: 400 } });
+    expect(root.querySelector('.bonus-slot')).toBe(slot);
+    expect(root.querySelector('.slow-status')).toBe(slow);
+    expect(root.querySelector('.slow-rule')).toBe(progress);
+    expect(root.querySelector('.presentation-notice')).toBe(notice);
+    expect(root.querySelector('.slow-rule')?.getAttribute('aria-valuenow')).toBe('3900');
+    expect(document.activeElement).toBe(pause);
+  });
+
+  it('shows the score multiplier and a readable ivory fallback bonus', () => {
+    const screen = new ScreenController(root);
+    screen.render(snapshot({ mode: 'playing', combo: 3,
+      bonus: { stored: 'mystery' as GameSnapshot['bonus']['stored'], slowRemainingMs: 0 } }), emptyPresentation());
+    expect(root.querySelector('.multiplier')?.textContent).toContain('×3');
+    expect(root.querySelector('.bonus-slot')?.getAttribute('data-tone')).toBe('ivory');
+    expect(root.querySelector('.bonus-slot')?.textContent).toContain('ПРОБЕЛ');
   });
 });

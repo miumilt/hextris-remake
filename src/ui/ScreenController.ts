@@ -2,6 +2,7 @@ import type { GameMode, GameSnapshot } from '../game/types';
 import type { AnomalyType, UpgradeChoice, UpgradeId } from '../game/progressionTypes';
 import { getBonusPresentation } from '../presentation/bonusPresentation';
 import type { PresentationSnapshot } from '../presentation/PresentationSystem';
+import { MAX_STACK_DEPTH } from '../game/constants';
 
 export interface ScreenActions {
   start(): void;
@@ -69,10 +70,11 @@ export class ScreenController {
         </section>`;
       } else if (mode === 'playing') {
         this.root.innerHTML = `<div class="playing-hud">
-          <div class="score"><span class="eyebrow">СЧЁТ</span><output aria-label="Счёт"></output></div>
+          <div class="score"><span class="eyebrow">СЧЁТ</span><output aria-label="Счёт"></output><span class="multiplier" aria-label="Множитель серии" hidden></span></div>
           <div class="cycle-hud"><span class="cycle-label"></span><div class="cycle-rule" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div></div>
           <div class="upgrade-rail" aria-label="Полученные улучшения"></div>
-          <div class="bonus-host"></div><div class="anomaly-host"></div>
+          <div class="field-warning-host"></div><div class="field-danger-host"></div>
+          <div class="bonus-host"></div>
           <div class="presentation-host" aria-live="polite" aria-atomic="true"></div>
         </div>
           <button type="button" class="pause-button" data-action="pause" aria-label="Поставить игру на паузу"><span aria-hidden="true">Ⅱ</span></button>`;
@@ -121,6 +123,12 @@ export class ScreenController {
   };
 
   private renderPlayingHud(snapshot: GameSnapshot, presentation: PresentationSnapshot): void {
+    const multiplier = this.root.querySelector<HTMLElement>('.multiplier');
+    if (multiplier) {
+      multiplier.hidden = snapshot.combo <= 1;
+      const copy = `×${snapshot.combo}`;
+      if (multiplier.textContent !== copy) multiplier.textContent = copy;
+    }
     const progress = Math.round(snapshot.cycle.progress * 100);
     const cycleRule = this.root.querySelector<HTMLElement>('.cycle-rule');
     cycleRule?.setAttribute('aria-valuenow', String(progress));
@@ -129,34 +137,7 @@ export class ScreenController {
     const cycleLabel = this.root.querySelector<HTMLElement>('.cycle-label');
     if (cycleLabel) cycleLabel.textContent = `ЦИКЛ ${String(snapshot.cycle.number).padStart(2, '0')} / ${PHASE_LABELS[snapshot.cycle.phase]}`;
 
-    const bonusHost = this.root.querySelector<HTMLElement>('.bonus-host');
-    if (bonusHost) {
-      let bonusMarkup = '';
-      if (snapshot.bonus.stored !== null) {
-        const bonus = getBonusPresentation(snapshot.bonus.stored);
-        const attention = presentation.slotAttentionRemainingMs > 0 ? ' attention' : '';
-        const replaced = presentation.replacedBonus === null ? '' : ' replaced';
-        const previous = presentation.replacedBonus === null
-          ? null
-          : getBonusPresentation(presentation.replacedBonus);
-        const previousGlyph = previous === null
-          ? ''
-          : `<span class="bonus-glyph previous" data-tone="${previous.tone}" data-replaced-bonus="${previous.label}" aria-hidden="true">${previous.glyph}</span>`;
-        bonusMarkup = `<div class="bonus-slot${attention}${replaced}" data-tone="${bonus.tone}" aria-label="Сохранённый бонус: ${bonus.label}">
-          ${previousGlyph}<span class="bonus-glyph current" aria-hidden="true">${bonus.glyph}</span>
-          <span class="bonus-copy"><strong>${bonus.label}</strong><small><kbd>ПРОБЕЛ</kbd><span aria-hidden="true"> — </span>ИСПОЛЬЗОВАТЬ</small></span>
-        </div>`;
-      }
-      if (snapshot.bonus.slowRemainingMs > 0) {
-        const slowProgress = Math.max(0, Math.min(1, snapshot.bonus.slowRemainingMs / 6000));
-        const remainingSeconds = (snapshot.bonus.slowRemainingMs / 1000).toFixed(1).replace('.0', '');
-        bonusMarkup += `<div class="slow-status${snapshot.bonus.stored === null ? '' : ' with-slot'}" aria-label="Замедление активно">
-          <strong>ЗАМЕДЛЕНИЕ АКТИВНО</strong><span>${remainingSeconds} С</span>
-          <div class="slow-rule" role="progressbar" aria-label="Осталось замедления" aria-valuemin="0" aria-valuemax="6000" aria-valuenow="${snapshot.bonus.slowRemainingMs}" style="--slow-progress:${Math.round(slowProgress * 100)}%"><span></span></div>
-        </div>`;
-      }
-      if (bonusHost.innerHTML !== bonusMarkup) bonusHost.innerHTML = bonusMarkup;
-    }
+    this.renderBonus(snapshot, presentation);
 
     const presentationHost = this.root.querySelector<HTMLElement>('.presentation-host');
     if (presentationHost) {
@@ -178,14 +159,105 @@ export class ScreenController {
       upgradeRail.hidden = marks.length === 0;
     }
 
-    const anomalyHost = this.root.querySelector<HTMLElement>('.anomaly-host');
-    if (!anomalyHost) return;
     const warning = snapshot.cycle.warning.map((type) => ANOMALY_LABELS[type]);
     const active = snapshot.cycle.anomalies.map((anomaly) => ANOMALY_LABELS[anomaly.type]);
-    const text = warning.length > 0 ? `${warning.join(' + ')} ЧЕРЕЗ ${Math.ceil(snapshot.cycle.warningRemainingMs / 1000)} С`
+    const warningText = warning.length > 0 ? `${warning.join(' + ')} ЧЕРЕЗ ${Math.ceil(snapshot.cycle.warningRemainingMs / 1000)} С`
       : active.length > 0 ? `${active.join(' + ')} АКТИВНО` : '';
-    const anomalyMarkup = text ? `<div class="anomaly-status" role="status">${text}</div>` : '';
-    if (anomalyHost.innerHTML !== anomalyMarkup) anomalyHost.innerHTML = anomalyMarkup;
+    const warningSides = warningText ? (snapshot.cycle.threat?.lanes.length
+      ? snapshot.cycle.threat.lanes : ['center']) : [];
+    this.renderSideCues('.field-warning-host', 'field-warning', warningSides, () => warningText);
+    const dangerSides = snapshot.stacks.flatMap((stack, side) =>
+      stack.length >= MAX_STACK_DEPTH - 2
+        ? [(side - snapshot.orientation + snapshot.stacks.length) % snapshot.stacks.length] : []);
+    this.renderSideCues('.field-danger-host', 'field-danger', dangerSides, () => 'ОПАСНО');
+  }
+
+  private renderBonus(snapshot: GameSnapshot, presentation: PresentationSnapshot): void {
+    const host = this.root.querySelector<HTMLElement>('.bonus-host');
+    if (!host) return;
+    let slot = host.querySelector<HTMLElement>('.bonus-slot');
+    const stored = snapshot.bonus.stored;
+    if (stored === null) {
+      slot?.remove();
+    } else {
+      const bonus = getBonusPresentation(stored);
+      if (!slot || slot.dataset.bonus !== stored) {
+        slot?.remove();
+        slot = document.createElement('div');
+        slot.className = 'bonus-slot';
+        slot.dataset.bonus = stored;
+        slot.dataset.tone = bonus.tone;
+        slot.setAttribute('aria-label', `Сохранённый бонус: ${bonus.label}. ${bonus.description.charAt(0)}${bonus.description.slice(1).toLocaleLowerCase('ru-RU')}. Пробел — использовать`);
+        slot.innerHTML = `<span class="bonus-glyph current" aria-hidden="true">${escapeHtml(bonus.glyph)}</span>
+          <span class="bonus-copy"><strong>${escapeHtml(bonus.label)}</strong><span class="bonus-description">${escapeHtml(bonus.description)}</span><small><kbd>ПРОБЕЛ</kbd><span aria-hidden="true"> — </span>ИСПОЛЬЗОВАТЬ</small></span>`;
+        host.prepend(slot);
+      }
+      slot.classList.toggle('attention', presentation.slotAttentionRemainingMs > 0);
+      slot.classList.toggle('replaced', presentation.replacedBonus !== null);
+      const previous = presentation.replacedBonus === null
+        ? null : getBonusPresentation(presentation.replacedBonus);
+      let previousGlyph = slot.querySelector<HTMLElement>('.bonus-glyph.previous');
+      if (previous === null) previousGlyph?.remove();
+      else if (!previousGlyph || previousGlyph.dataset.replacedBonus !== previous.label) {
+        previousGlyph?.remove();
+        previousGlyph = document.createElement('span');
+        previousGlyph.className = 'bonus-glyph previous';
+        previousGlyph.dataset.tone = previous.tone;
+        previousGlyph.dataset.replacedBonus = previous.label;
+        previousGlyph.setAttribute('aria-hidden', 'true');
+        previousGlyph.textContent = previous.glyph;
+        slot.prepend(previousGlyph);
+      }
+    }
+
+    let slow = host.querySelector<HTMLElement>('.slow-status');
+    if (snapshot.bonus.slowRemainingMs <= 0) {
+      slow?.remove();
+    } else {
+      if (!slow) {
+        slow = document.createElement('div');
+        slow.className = 'slow-status';
+        slow.setAttribute('aria-label', 'Замедление активно');
+        slow.innerHTML = `<strong>ЗАМЕДЛЕНИЕ АКТИВНО</strong><span></span><div class="slow-rule" role="progressbar" aria-label="Осталось замедления" aria-valuemin="0" aria-valuemax="6000"><span></span></div>`;
+        host.append(slow);
+      }
+      slow.classList.toggle('with-slot', stored !== null);
+      slow.querySelector('span')!.textContent = `${(snapshot.bonus.slowRemainingMs / 1000).toFixed(1).replace('.0', '')} С`;
+      const rule = slow.querySelector<HTMLElement>('.slow-rule')!;
+      rule.setAttribute('aria-valuenow', String(snapshot.bonus.slowRemainingMs));
+      rule.style.setProperty('--slow-progress', `${Math.round(Math.max(0, Math.min(1, snapshot.bonus.slowRemainingMs / 6000)) * 100)}%`);
+    }
+  }
+
+  private renderSideCues(
+    selector: string, className: string, sides: readonly (number | string)[], copy: (side: number | string) => string,
+  ): void {
+    const host = this.root.querySelector<HTMLElement>(selector);
+    if (!host) return;
+    const keys = new Set(sides.map(String));
+    host.querySelectorAll<HTMLElement>(`.${className}`).forEach((node) => {
+      if (!keys.has(node.dataset.side ?? '')) node.remove();
+    });
+    for (const [index, side] of sides.entries()) {
+      const key = String(side);
+      let node = [...host.querySelectorAll<HTMLElement>(`.${className}`)]
+        .find((candidate) => candidate.dataset.side === key);
+      if (!node) {
+        node = document.createElement('div');
+        node.className = className;
+        node.dataset.side = key;
+        host.append(node);
+      }
+      if (className === 'field-warning' && index > 0) {
+        node.removeAttribute('role');
+        node.setAttribute('aria-hidden', 'true');
+      } else {
+        node.setAttribute('role', 'status');
+        node.removeAttribute('aria-hidden');
+      }
+      const text = copy(side);
+      if (node.textContent !== text) node.textContent = text;
+    }
   }
 
   private renderUpgradeSelection(snapshot: GameSnapshot): void {
