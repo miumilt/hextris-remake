@@ -467,11 +467,31 @@ describe('progression rendering', () => {
     } }, isolated.snapshot(), presentation(), 0);
     const threatArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
     expect(threatArc[1]).toBeGreaterThan(0);
+    expect(Math.hypot(threatArc[0], threatArc[1])).toBeCloseTo(HEX_APOTHEM + 22);
     context.arc.mockClear();
     renderer.render(snapshot(), isolated.snapshot(), presentation(), 0);
     const unlocatedArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
     expect(unlocatedArc[0]).toBeCloseTo(0);
     expect(unlocatedArc[1]).toBeCloseTo(0);
+  });
+
+  it('places double-threat INERTIA glyph on an end of the shared side rule', () => {
+    const { renderer, context, strokes } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'anomalyWarning', anomalies: ['mirage', 'inertia'], lanes: [3],
+      warningMs: 3_200, atActiveMs: 0 }]);
+    fx.consume([{ type: 'rotationDelayed', steps: 1, remainingMs: 300 }]);
+    const current = snapshot();
+    renderer.render({ ...current, cycle: { ...current.cycle,
+      warning: ['mirage', 'inertia'], warningRemainingMs: 1_000,
+    } }, fx.snapshot(), presentation(), 0);
+    const rule = strokes.find(({ style, points }) => style === VISUAL_COLORS.amber && points.length === 2
+      && Math.hypot(points[0]![0] - points[1]![0], points[0]![1] - points[1]![1]) >= 50)!;
+    const arc = context.arc.mock.calls.find((call) => call[2] === 22)!;
+    const distanceToEnd = Math.min(...rule.points.map(([x, y]) => Math.hypot(arc[0] - x, arc[1] - y)));
+    expect(distanceToEnd).toBeLessThan(1);
+    expect(strokes.some(stroke => stroke.style === VISUAL_COLORS.amber && stroke.points.length === 6
+      && Math.hypot(...center(stroke)) < 1)).toBe(true);
   });
 
   it('keeps reduced motion free of transforms and fragments while retaining a local contour', () => {

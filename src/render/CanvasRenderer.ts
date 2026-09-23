@@ -914,8 +914,9 @@ export class CanvasRenderer {
       return { ...cue, lanes: threatLanes ?? peerLanes ?? [] };
     });
     const sharedLane = cues.find(({ lanes }) => lanes.length > 0)?.lanes[0];
-    if (cues.length >= 2 && sharedLane !== undefined
-      && isSharedThreat(cues[0]!.anomaly, cues[1]!.anomaly)) {
+    const paired = cues.length >= 2 && sharedLane !== undefined
+      && isSharedThreat(cues[0]!.anomaly, cues[1]!.anomaly);
+    if (paired) {
       const angle = this.laneAngle(sharedLane);
       const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
       const center = { x: Math.cos(angle) * 215, y: Math.sin(angle) * 215 };
@@ -930,15 +931,16 @@ export class CanvasRenderer {
       ctx.stroke();
       ctx.restore();
     }
-    cues.forEach((cue, index) => this.anomalyCue(cue, cues.length > 1 ? (index % 2 === 0 ? -1 : 1) : 0));
+    cues.forEach((cue, index) => this.anomalyCue(cue,
+      paired && index < 2 ? (index === 0 ? -1 : 1) : 0, paired && index < 2));
   }
 
-  private anomalyCue(cue: AnomalyCue, offset: number): void {
+  private anomalyCue(cue: AnomalyCue, offset: number, sideAttached: boolean): void {
     const ctx = this.ctx;
     const lane = cue.lanes[0] ?? null;
     const angle = lane === null ? 0 : this.laneAngle(lane);
     const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
-    const radius = cue.anomaly === 'inertia' ? HEX_APOTHEM + 22 : 215;
+    const radius = cue.anomaly === 'inertia' && !sideAttached ? HEX_APOTHEM + 22 : 215;
     const point = lane === null ? ORIGIN : { x: Math.cos(angle) * radius + tangent.x * offset * 30,
       y: Math.sin(angle) * radius + tangent.y * offset * 30 };
     ctx.save();
