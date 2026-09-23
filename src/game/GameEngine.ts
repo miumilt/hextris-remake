@@ -4,6 +4,7 @@ import {
   COMBO_WINDOW_MS,
   HEX_APOTHEM,
   MAX_STACK_DEPTH,
+  OPENING_DURATION_MS,
   SIDE_COUNT,
   START_DISTANCE,
 } from './constants';
@@ -22,7 +23,7 @@ import type {
   GridBlock,
 } from './types';
 import { WaveSpawner, type SpawnRequest } from './WaveSpawner';
-import { UpgradeSystem } from './UpgradeSystem';
+import { UpgradeSystem, clampWaveProfile } from './UpgradeSystem';
 import type { FallingBonus, UpgradeChoice } from './progressionTypes';
 
 interface DelayedRotation {
@@ -35,8 +36,6 @@ export interface GameEngineOptions {
   readonly maxStackDepth?: number;
   readonly spawning?: boolean;
   readonly director?: ThreatDirectorOptions;
-  /** @deprecated Use director. This compatibility alias is removed in Task 3. */
-  readonly cycle?: ThreatDirectorOptions;
 }
 
 export interface DebugPlacement {
@@ -55,6 +54,8 @@ export class GameEngine {
   private score = 0;
   private combo = 1;
   private elapsedMs = 0;
+  private openingRemainingMs = OPENING_DURATION_MS;
+  private openingPreviewLanes: readonly number[] = [];
   private lastMatchAtMs = Number.NEGATIVE_INFINITY;
   private nextBlockId = 1;
   private grid: HexGrid;
@@ -81,7 +82,7 @@ export class GameEngine {
     this.randomSeed = options.randomSeed ?? 1;
     this.maxStackDepth = options.maxStackDepth ?? MAX_STACK_DEPTH;
     this.spawning = options.spawning ?? true;
-    this.directorOptions = options.director ?? options.cycle ?? {};
+    this.directorOptions = options.director ?? {};
     this.grid = new HexGrid(this.maxStackDepth);
     this.spawner = new WaveSpawner(new SeededRandom(this.randomSeed));
     this.anomalyRandom = new SeededRandom(this.randomSeed ^ 0x414e4f4d);
@@ -143,7 +144,7 @@ export class GameEngine {
     let remainingMs = deltaMs;
     while (remainingMs > 0 && this.mode === 'playing') {
       const modifiers = this.upgrades.getModifiers();
-      const startProfile = this.director.getWaveProfile();
+      const startProfile = clampWaveProfile(this.director.getWaveProfile(), modifiers.speedMultiplier);
       const motionMultiplier = this.bonuses.getMotionMultiplier();
       let requestedMs = Math.min(remainingMs, this.director.getNextEventMs(modifiers));
       const slowRemainingMs = this.bonuses.getSnapshot().slowRemainingMs;
@@ -177,19 +178,18 @@ export class GameEngine {
 
       remainingMs -= activeDeltaMs;
       this.elapsedMs = canonicalMs(this.elapsedMs + activeDeltaMs);
+      this.openingRemainingMs = Math.max(0, canonicalMs(this.openingRemainingMs - activeDeltaMs));
       const motionDeltaMs = this.bonuses.update(activeDeltaMs);
       this.motionElapsedMs = canonicalMs(this.motionElapsedMs + motionDeltaMs);
       this.advanceDelayedRotations(activeDeltaMs);
-      const profile = this.director.getWaveProfile();
-      const spawnSpeed = profile.speed * modifiers.speedMultiplier;
+      const profile = clampWaveProfile(this.director.getWaveProfile(), modifiers.speedMultiplier);
+      const spawnSpeed = profile.speed;
       if (directorTick.bonusDue) this.scheduleBonus(spawnSpeed, events);
       let spawned: readonly FallingBlock[] = [];
       if (this.spawning) {
-        spawned = this.spawn(this.spawner.update(motionDeltaMs, {
-          ...profile,
-          speed: spawnSpeed,
-        }));
+        spawned = this.spawn(this.spawner.update(motionDeltaMs, profile));
       }
+      if (this.openingRemainingMs === 0) this.openingPreviewLanes = [];
       this.moveAndLand(events);
       for (const block of spawned) {
         events.push(Object.freeze({ type: 'blockSpawned', block }));
@@ -210,6 +210,8 @@ export class GameEngine {
     const fallingBonuses = this.fallingBonuses.map((bonus) => Object.freeze({ ...bonus }));
     return Object.freeze({
       mode: this.mode,
+      opening: Object.freeze({ remainingMs: this.openingRemainingMs,
+        previewLanes: Object.freeze([...this.openingPreviewLanes]) }),
       score: this.score,
       combo: this.combo,
       orientation: this.grid.orientation,
@@ -248,6 +250,8 @@ export class GameEngine {
     this.spawner = new WaveSpawner(new SeededRandom(this.randomSeed));
     this.anomalyRandom = new SeededRandom(this.randomSeed ^ 0x414e4f4d);
     this.director = new ThreatDirector(new SeededRandom(this.randomSeed ^ 0x4359434c), this.directorOptions);
+    this.openingRemainingMs = OPENING_DURATION_MS;
+    this.openingPreviewLanes = this.spawner.prime(this.director.getWaveProfile(), OPENING_DURATION_MS);
     this.bonuses = new BonusSystem(new SeededRandom(this.randomSeed ^ 0x424f4e55));
     this.upgrades = new UpgradeSystem(new SeededRandom(this.randomSeed ^ 0x55504752));
     this.fallingBonuses = [];

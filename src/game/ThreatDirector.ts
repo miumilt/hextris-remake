@@ -80,7 +80,7 @@ interface MutableAnomaly { type: AnomalyType; remainingMs: number; }
 const freeze = <T extends object>(value: T): Readonly<T> => Object.freeze(value);
 const canonicalMs = (value: number): number => {
   const integer = Math.round(value);
-  if (Math.abs(value - integer) < 1e-9) return integer;
+  if (Math.abs(value - integer) < 1e-6) return integer;
   return Math.round(value * 1e9) / 1e9;
 };
 const phaseAt = (elapsedMs: number): GamePhase => {
@@ -105,8 +105,10 @@ export class ThreatDirector {
   private elapsedMs = 0;
   private totalActiveMs = 0;
   private awaitingUpgrade = false;
-  private bonusRemainingMs: number | null = null;
-  private deferredBonus = false;
+  private nextBonusAtMs: number | null = null;
+  private lastBonusAtMs = 0;
+  private plannedWarningIntervals: { startMs: number; endMs: number }[] = [];
+  private plannedThreats: { startMs: number; endMs: number; plan: ThreatPlan }[] = [];
   private warningAtMs: number | null = null;
   private warning: AnomalyType[] = [];
   private warningRemainingMs = 0;
@@ -143,7 +145,7 @@ export class ThreatDirector {
     const events: DirectorEvent[] = [];
     let bonusDue = false;
     let remainingMs = deltaMs;
-    if (this.bonusRemainingMs === null) this.scheduleNextBonus(modifiers);
+    if (this.nextBonusAtMs === null) this.scheduleNextBonus(modifiers);
 
     while (remainingMs > 0 && !this.awaitingUpgrade) {
       const boundaryBonusDue = this.processBoundaries(modifiers, events);
@@ -181,18 +183,23 @@ export class ThreatDirector {
       MIN_WAVE_INTERVAL_MS,
       baseIntervalAt(this.totalActiveMs) * PHASE_INTERVAL_MULTIPLIER[this.phase],
     );
+    const authored = this.phase === 'pressure' ? this.currentThreat : null;
     return freeze<WaveProfile>({
       intervalMs,
       speed: baseSpeedAt(this.totalActiveMs),
       patternWeights: freeze({ ...this.patternWeights() }),
       forcedPattern: this.phase === 'release' ? 'single' : this.phase === 'pressure' ? this.currentThreat!.pattern : null,
       forcedPatternSequence: null,
+      forcedAnchorLane: authored?.anchorLane ?? null,
+      authoredWaveId: authored === null ? null
+        : `${this.cycleNumber}:pressure:${authored.pattern}:${authored.anchorLane}`,
+      entryDelayMs: authored?.entryDelayMs ?? 0,
     });
   }
 
   public getNextEventMs(modifiers: DirectorModifiers): number {
     if (this.awaitingUpgrade) return 0;
-    if (this.bonusRemainingMs === null) this.scheduleNextBonus(modifiers);
+    if (this.nextBonusAtMs === null) this.scheduleNextBonus(modifiers);
     return this.nextBoundaryMs();
   }
 
@@ -207,8 +214,10 @@ export class ThreatDirector {
     this.cycleNumber = 1;
     this.totalActiveMs = 0;
     this.awaitingUpgrade = false;
-    this.bonusRemainingMs = null;
-    this.deferredBonus = false;
+    this.nextBonusAtMs = null;
+    this.lastBonusAtMs = 0;
+    this.plannedWarningIntervals = [];
+    this.plannedThreats = [];
     this.anomalyCooldowns.clear();
     this.lastPressureCombination = null;
     this.startCycle();
@@ -218,13 +227,23 @@ export class ThreatDirector {
     this.phase = 'settle';
     this.elapsedMs = 0;
     this.currentThreat = this.prepareThreat();
+    const cycleStartMs = (this.cycleNumber - 1) * CYCLE_DURATION_MS;
+    if (this.currentThreat.anomalies.length > 0) {
+      this.plannedWarningIntervals.push({ startMs: cycleStartMs + 42_000,
+        endMs: cycleStartMs + 42_000 + this.currentThreat.warningMs });
+    }
+    this.plannedThreats.push({ startMs: cycleStartMs + BUILD_END_MS,
+      endMs: cycleStartMs + PRESSURE_END_MS, plan: this.currentThreat });
+    this.plannedWarningIntervals = this.plannedWarningIntervals
+      .filter(({ endMs }) => endMs >= this.totalActiveMs - 50_000);
+    this.plannedThreats = this.plannedThreats
+      .filter(({ endMs }) => endMs >= this.totalActiveMs - 50_000);
     this.resetAnomalySchedule();
   }
 
   private advance(stepMs: number): void {
     this.elapsedMs = canonicalMs(this.elapsedMs + stepMs);
     this.totalActiveMs = canonicalMs((this.cycleNumber - 1) * CYCLE_DURATION_MS + this.elapsedMs);
-    if (!this.deferredBonus && this.bonusRemainingMs !== null) this.bonusRemainingMs = canonicalMs(this.bonusRemainingMs - stepMs);
     if (this.warning.length > 0) this.warningRemainingMs = canonicalMs(this.warningRemainingMs - stepMs);
     for (const anomaly of this.anomalies) anomaly.remainingMs = canonicalMs(anomaly.remainingMs - stepMs);
   }
@@ -234,7 +253,7 @@ export class ThreatDirector {
     if (this.warningAtMs !== null) boundaries.push(this.warningAtMs - this.elapsedMs);
     if (this.warning.length > 0) boundaries.push(this.warningRemainingMs);
     if (this.anomalies.length > 0) boundaries.push(Math.min(...this.anomalies.map(({ remainingMs }) => remainingMs)));
-    if (!this.deferredBonus && this.bonusRemainingMs !== null) boundaries.push(this.bonusRemainingMs);
+    if (this.nextBonusAtMs !== null) boundaries.push(this.nextBonusAtMs - this.totalActiveMs);
     return Math.min(...boundaries.filter((boundary) => boundary > 0));
   }
 
@@ -282,16 +301,10 @@ export class ThreatDirector {
         this.startCycle();
       }
     }
-    if (this.deferredBonus && this.phase === 'settle') {
+    if (this.nextBonusAtMs !== null && this.totalActiveMs + 1e-6 >= this.nextBonusAtMs) {
       bonusDue = true;
+      this.lastBonusAtMs = this.nextBonusAtMs;
       this.scheduleNextBonus(modifiers);
-    }
-    if (!this.deferredBonus && this.bonusRemainingMs !== null && this.bonusRemainingMs <= 0) {
-      if (this.phase === 'release') this.deferredBonus = true;
-      else {
-        bonusDue = true;
-        this.scheduleNextBonus(modifiers);
-      }
     }
     return bonusDue;
   }
@@ -336,16 +349,46 @@ export class ThreatDirector {
     return freeze({
       pattern: request.pattern, anchorLane, lanes, anomalies: freeze([...request.anomalies]),
       warningMs: request.anomalies.length === 2 ? 3_200 : request.anomalies.length === 1 ? SINGLE_ANOMALY_WARNING_MS : 0,
-      entryDelayMs, bonusIncompatible: request.anomalies.length === 2 || entryDelayMs > 0,
+      entryDelayMs, bonusIncompatible: true,
       evidence: freeze({ seedCycle: this.cycleNumber, phase: 'pressure', budget: budgetAt('pressure', activeMs),
         spent: planCost(request), combinationKey: key }),
     });
   }
 
   private scheduleNextBonus(modifiers: DirectorModifiers): void {
-    const sampledIntervalMs = 28_000 + Math.floor(this.random.next() * 14_001);
-    this.bonusRemainingMs = Math.max(16_000, sampledIntervalMs * modifiers.bonusIntervalMultiplier);
-    this.deferredBonus = false;
+    const minAt = this.lastBonusAtMs + 35_000;
+    const maxAt = this.lastBonusAtMs + 50_000;
+    const sampled = Math.min(maxAt, Math.max(minAt,
+      this.lastBonusAtMs + (35_000 + Math.floor(this.random.next() * 15_001))
+        * modifiers.bonusIntervalMultiplier));
+    this.nextBonusAtMs = this.findLegalBonusTime(sampled, maxAt, 250)
+      ?? this.findLegalBonusTime(maxAt, minAt, -250);
+    if (this.nextBonusAtMs === null) throw new Error('No legal bonus slot in the 35-50 second window');
+  }
+
+  private findLegalBonusTime(fromMs: number, toMs: number, stepMs: 250 | -250): number | null {
+    for (let candidateMs = fromMs;
+      stepMs > 0 ? candidateMs <= toMs : candidateMs >= toMs;
+      candidateMs += stepMs) {
+      if (this.isLegalBonusTime(candidateMs) && this.hasLegalFollowUp(candidateMs)) return candidateMs;
+    }
+    return null;
+  }
+
+  private hasLegalFollowUp(candidateMs: number): boolean {
+    for (let nextMs = candidateMs + 35_000; nextMs <= candidateMs + 50_000; nextMs += 250) {
+      if (this.isLegalBonusTime(nextMs)) return true;
+    }
+    return false;
+  }
+
+  private isLegalBonusTime(candidateMs: number): boolean {
+    const phase = phaseAt(candidateMs % CYCLE_DURATION_MS);
+    const insideWarning = this.plannedWarningIntervals.some(({ startMs, endMs }) =>
+      candidateMs >= startMs && candidateMs < endMs);
+    const incompatible = this.plannedThreats.some(({ startMs, endMs, plan }) =>
+      plan.bonusIncompatible && candidateMs >= startMs && candidateMs < endMs);
+    return (phase === 'settle' || phase === 'build') && !insideWarning && !incompatible;
   }
 
   private patternWeights(): Readonly<Record<WavePattern, number>> {

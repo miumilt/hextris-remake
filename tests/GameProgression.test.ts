@@ -22,6 +22,33 @@ function untilEvent(game: GameEngine, type: GameEvent['type']): readonly GameEve
 }
 
 describe('GameEngine threat progression', () => {
+  it('previews the cached opening, accepts controls, and releases its lanes at 1200 active ms', () => {
+    const game = new GameEngine({ randomSeed: 7, maxStackDepth: 100 });
+    game.start();
+    const preview = game.getSnapshot().opening.previewLanes;
+    expect(preview.length).toBeGreaterThan(0);
+    expect(Object.isFrozen(preview)).toBe(true);
+    game.enqueue({ type: 'rotate', steps: 1 });
+    expect(game.update(1_199).filter(({ type }) => type === 'blockSpawned')).toEqual([]);
+    expect(game.getSnapshot()).toMatchObject({ orientation: 1, opening: { remainingMs: 1, previewLanes: preview } });
+    game.enqueue({ type: 'togglePause' }); game.update(0);
+    game.update(1_000);
+    expect(game.getSnapshot().opening.remainingMs).toBe(1);
+    game.enqueue({ type: 'togglePause' }); game.update(0);
+    const spawned = game.update(1).filter((event) => event.type === 'blockSpawned');
+    expect(spawned.map((event) => event.block.lane)).toEqual(preview);
+    expect(game.getSnapshot().opening).toEqual({ remainingMs: 0, previewLanes: [] });
+  });
+
+  it('keeps opening spawn events and snapshots equal across large and split updates', () => {
+    const run = (chunks: readonly number[]) => {
+      const game = new GameEngine({ randomSeed: 7, maxStackDepth: 100 });
+      game.start();
+      return { events: chunks.flatMap((chunk) => game.update(chunk)), snapshot: game.getSnapshot() };
+    };
+    expect(run([2_000])).toEqual(run([400, 800, 200, 600]));
+  });
+
   it('keeps seeded gameplay, landings, and combo scoring independent of public update chunks', () => {
     const run = (steps: readonly number[]) => {
       const game = new GameEngine({ randomSeed: 6 });
@@ -72,10 +99,10 @@ describe('GameEngine threat progression', () => {
     expect(game.getSnapshot()).toMatchObject({ mode: 'playing', cycle: { number: 4, phase: 'settle', elapsedMs: 0 } });
   });
 
-  it('keeps the deprecated cycle option as a director compatibility alias', () => {
+  it('accepts forced threat options through the director option', () => {
     const game = new GameEngine({
       spawning: false,
-      cycle: { forcedAnomaliesByCycle: { 2: ['reverse'] } },
+      director: { forcedAnomaliesByCycle: { 2: ['reverse'] } },
     });
     game.start();
     game.update(75_000);
@@ -111,7 +138,7 @@ describe('GameEngine threat progression', () => {
   });
 
   it('keeps director active time moving while SLOW reduces falling motion', () => {
-    const game = progressionGame(3); game.start(); game.update(40_845); game.update(3_000);
+    const game = progressionGame(3); game.start(); untilEvent(game, 'bonusCollected');
     game.enqueue({ type: 'activateBonus' }); game.update(0); game.debugSpawn({ lane: 0, color: 'coral', speed: 100 });
     const before = game.getSnapshot().cycle.elapsedMs; game.update(1_000);
     expect(game.getSnapshot().falling[0]?.distance).toBe(465);
@@ -156,7 +183,7 @@ describe('GameEngine threat progression', () => {
     const game = new GameEngine({ randomSeed: 1, spawning: false, maxStackDepth: 100 }); game.start();
     for (let offer = 1; offer <= 15; offer += 1) {
       game.update(225_000);
-      expect(game.getSnapshot().mode).toBe('upgrade');
+      expect(game.getSnapshot().mode, `offer ${offer}`).toBe('upgrade');
       game.enqueue({ type: 'confirmUpgrade' }); game.update(0);
     }
     const events = game.update(225_000);

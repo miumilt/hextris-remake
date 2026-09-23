@@ -136,11 +136,21 @@ describe('ThreatDirector', () => {
     ]);
   });
 
-  it('keeps the salvage-modified bonus interval at its sixteen-second floor', () => {
+  it('keeps salvage bonuses at least thirty-five active seconds apart', () => {
     const director = new ThreatDirector(new SequenceRandom([0]));
     const salvage = { anomalyDurationMultiplier: 1, bonusIntervalMultiplier: 0.1 };
-    expect(director.update(15_999, salvage).bonusDue).toBe(false);
+    expect(director.update(34_999, salvage).bonusDue).toBe(false);
     expect(director.update(1, salvage).bonusDue).toBe(true);
+  });
+
+  it('looks ahead when a sampled bonus would strand the next 35-50 second window', () => {
+    const director = new ThreatDirector(new SequenceRandom([0, 0, 1, 2 / 3]));
+    const bonusTimes: number[] = [];
+    while (bonusTimes.length < 3) {
+      const tick = director.update(director.getNextEventMs(NO_MODIFIERS), NO_MODIFIERS);
+      if (tick.bonusDue) bonusTimes.push(director.getSnapshot().totalActiveMs);
+    }
+    expect(bonusTimes).toEqual([50_000, 100_000, 150_000]);
   });
 
   it('reports immutable director events independently from immutable snapshots', () => {
@@ -160,7 +170,9 @@ describe('ThreatDirector', () => {
 
   it('resets active time, warning state, and anomalies for a fresh deterministic run', () => {
     const director = new ThreatDirector(new SequenceRandom([0, 0]), { forcedAnomaliesByCycle: { 2: ['mirage'] } });
-    advanceToCycle(director, 2); director.update(22_500, NO_MODIFIERS); director.reset();
+    advanceToCycle(director, 2); director.update(42_500, NO_MODIFIERS);
+    expect(director.getSnapshot().warning).toEqual(['mirage']);
+    director.reset();
     expect(director.getSnapshot()).toMatchObject({ number: 1, phase: 'settle', elapsedMs: 0, totalActiveMs: 0, warning: [], anomalies: [] });
   });
 
@@ -215,8 +227,8 @@ describe('ThreatDirector', () => {
   });
 
   it.each([
-    ['single', [], 1, 0, false], ['pair', ['mirage'], 4, 0, false],
-    ['opposite', ['drift'], 4, 0, false], ['halfCircle', ['colorShift'], 5, 0, false],
+    ['single', [], 1, 0, true], ['pair', ['mirage'], 4, 0, true],
+    ['opposite', ['drift'], 4, 0, true], ['halfCircle', ['colorShift'], 5, 0, true],
     ['spiral', ['reverse'], 7, 450, true], ['circle', ['inertia'], 8, 450, true],
     ['halfCircle', ['mirage', 'drift'], 9, 0, true],
   ] as const)('explains the exact cost and fairness accommodations for %s with %j', (pattern, anomalies, spent, entryDelayMs, bonusIncompatible) => {
@@ -245,6 +257,20 @@ describe('ThreatDirector', () => {
     expect(warning).toMatchObject({ lanes: [5, 0, 1], anomalies: ['drift'], warningMs: 2_500, atActiveMs: 117_000 });
     expect(Object.isFrozen((warning as Extract<DirectorEvent, { type: 'anomalyWarning' }>).lanes)).toBe(true);
     expect(collectPlans(director, 28_000)).toEqual([]);
+  });
+
+  it('carries the authored plan anchor and delayed entry into its Pressure wave profile', () => {
+    const director = new ThreatDirector(new SeededRandom(7), {
+      forcedSituationsByCycle: { 2: { pattern: 'spiral', anchorLane: 4, anomalies: ['reverse'] } },
+    });
+    advanceToCycle(director, 2);
+    director.update(55_000, NO_MODIFIERS);
+    const plan = director.getSnapshot().threat!;
+    expect(plan.lanes).toEqual([4, 5, 0, 1, 2, 3]);
+    expect(director.getWaveProfile()).toMatchObject({
+      forcedPattern: 'spiral', forcedAnchorLane: 4,
+      authoredWaveId: '2:pressure:spiral:4', entryDelayMs: 450,
+    });
   });
 
   it('restricts phase patterns and clears all complications at Release', () => {
@@ -278,16 +304,15 @@ describe('ThreatDirector', () => {
     expect(run([480_000])).toEqual(run(Array.from({ length: 480 }, () => 1_000)));
   });
 
-  it('resolves Release-deferred bonuses exactly when Settle starts, including after an upgrade', () => {
+  it('keeps scheduled bonuses out of Release, including across an upgrade', () => {
     const director = new ThreatDirector(new SequenceRandom([]));
     const modifiers = { ...NO_MODIFIERS, bonusIntervalMultiplier: 2.5 };
-    expect(director.update(70_000, modifiers).bonusDue).toBe(false);
-    expect(director.update(5_000, modifiers).bonusDue).toBe(true);
+    expect(director.update(70_000, modifiers).bonusDue).toBe(true);
+    expect(director.update(5_000, modifiers).bonusDue).toBe(false);
     expect(director.update(75_000, modifiers).bonusDue).toBe(true);
     const upgrade = director.update(75_000, modifiers);
-    expect(upgrade).toMatchObject({ bonusDue: false, upgradeDue: true });
+    expect(upgrade).toMatchObject({ upgradeDue: true });
     director.beginNextCycle();
-    expect(director.update(0, modifiers).bonusDue).toBe(true);
     expect(director.update(0, modifiers).bonusDue).toBe(false);
   });
 

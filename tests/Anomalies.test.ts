@@ -13,7 +13,7 @@ function gameFor(anomalies: readonly AnomalyType[]): GameEngine {
     randomSeed: 73,
     spawning: false,
     maxStackDepth: 20,
-    cycle: { forcedSituationsByCycle },
+    director: { forcedSituationsByCycle },
   });
   game.start();
   while (game.getSnapshot().cycle.number < cycle) {

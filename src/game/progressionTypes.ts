@@ -45,6 +45,9 @@ export interface WaveProfile {
   readonly patternWeights: Readonly<Record<WavePattern, number>>;
   readonly forcedPattern: WavePattern | null;
   readonly forcedPatternSequence: readonly WavePattern[] | null;
+  readonly forcedAnchorLane: number | null;
+  readonly authoredWaveId: string | null;
+  readonly entryDelayMs: number;
 }
 
 export interface ThreatEvidence {

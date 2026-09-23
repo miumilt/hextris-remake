@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { GameEngine } from '../src/game/GameEngine';
 
 describe('GameEngine', () => {
-  it('describes newly spawned blocks without changing their snapshot', () => {
+  it('describes opening spawns at birth while snapshots track their motion', () => {
     const game = new GameEngine({ randomSeed: 11 });
     game.start();
 
@@ -15,7 +15,11 @@ describe('GameEngine', () => {
         id: expect.any(Number), lane: expect.any(Number), color: expect.any(String), distance: 520,
       },
     });
-    expect(game.getSnapshot().falling).toContainEqual(spawned?.block);
+    expect(game.getSnapshot().falling).toContainEqual(expect.objectContaining({
+      id: spawned?.block.id, lane: spawned?.block.lane, color: spawned?.block.color,
+      speed: spawned?.block.speed,
+    }));
+    expect(game.getSnapshot().falling[0]!.distance).toBeLessThan(520);
   });
 
   it('lands exactly at the occupied stack boundary, but not just before it', () => {
@@ -178,6 +182,7 @@ describe('GameEngine', () => {
     const game = new GameEngine({ spawning: false });
     game.start();
     const initialThreat = game.getSnapshot().cycle.threat;
+    const initialOpening = game.getSnapshot().opening;
     game.debugAttachGroup('coral', [{ side: 0, count: 3 }]);
     game.debugSpawn({ lane: 1, color: 'teal', speed: 100 });
     game.update(10);
@@ -188,6 +193,7 @@ describe('GameEngine', () => {
 
     expect(game.getSnapshot()).toEqual({
       mode: 'playing',
+      opening: initialOpening,
       score: 0,
       combo: 1,
       orientation: 0,

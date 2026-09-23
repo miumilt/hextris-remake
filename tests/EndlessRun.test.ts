@@ -3,11 +3,47 @@ import { ThreatDirector } from '../src/game/ThreatDirector';
 import { GameEngine } from '../src/game/GameEngine';
 import { SeededRandom } from '../src/game/random';
 import type { GameEvent } from '../src/game/types';
+import { clampWaveProfile } from '../src/game/UpgradeSystem';
 
 const modifiers = { anomalyDurationMultiplier: 1, bonusIntervalMultiplier: 1 };
 
 describe('endless threat pressure', () => {
-  it('schedules a Release-deferred bonus when an upgrade resumes at zero elapsed time', () => {
+  it('keeps modified late spawning inside both practical ceilings', () => {
+    const result = clampWaveProfile({ intervalMs: 410, speed: 590,
+      patternWeights: { single: 1, pair: 0, opposite: 0, halfCircle: 0, circle: 0, spiral: 0 },
+      forcedPattern: null, forcedPatternSequence: null, forcedAnchorLane: null,
+      authoredWaveId: null, entryDelayMs: 0 }, 1.4);
+    expect(result.speed).toBe(600);
+    expect(result.intervalMs).toBe(500);
+  });
+
+  it('schedules each bonus 35-50 active seconds apart outside pressure and warnings', () => {
+    const director = new ThreatDirector(new SeededRandom(21));
+    const moments: { at: number; phase: string; warning: readonly string[] }[] = [];
+    const upgradeCycles: number[] = [];
+    while (director.getSnapshot().totalActiveMs < 500_000) {
+      const tick = director.update(director.getNextEventMs(modifiers), modifiers);
+      const snapshot = director.getSnapshot();
+      if (tick.bonusDue) moments.push({ at: snapshot.totalActiveMs,
+        phase: snapshot.phase, warning: snapshot.warning });
+      if (tick.upgradeDue) {
+        upgradeCycles.push(snapshot.number);
+        director.beginNextCycle();
+      }
+    }
+    expect(moments.length).toBeGreaterThan(8);
+    expect(moments[0]!.at).toBeGreaterThanOrEqual(35_000);
+    expect(moments[0]!.at).toBeLessThanOrEqual(50_000);
+    expect(moments.slice(1).every((moment, index) => {
+      const gap = moment.at - moments[index]!.at;
+      return gap >= 35_000 && gap <= 50_000;
+    })).toBe(true);
+    expect(moments.every(({ phase, warning }) =>
+      !['pressure', 'release'].includes(phase) && warning.length === 0)).toBe(true);
+    expect(upgradeCycles.slice(0, 2)).toEqual([3, 6]);
+  });
+
+  it('does not invent a bonus when an upgrade resumes at zero elapsed time', () => {
     const game = new GameEngine({ randomSeed: 1, spawning: false });
     game.start();
     game.update(225_000);
@@ -16,12 +52,11 @@ describe('endless threat pressure', () => {
     game.enqueue({ type: 'confirmUpgrade' });
     const resumed = game.update(0);
     expect(game.getSnapshot().cycle).toMatchObject({ number: 4, phase: 'settle', elapsedMs: 0 });
-    expect(resumed.filter(({ type }) => type === 'bonusScheduled')).toHaveLength(1);
-    expect(game.getSnapshot().fallingBonuses).toHaveLength(1);
+    expect(resumed.filter(({ type }) => type === 'bonusScheduled')).toHaveLength(0);
     expect(game.update(0).filter(({ type }) => type === 'bonusScheduled')).toHaveLength(0);
   });
 
-  it('keeps deferred bonus events and state identical across upgrade-resume chunks', () => {
+  it('keeps scheduled bonus events and state identical across upgrade-resume chunks', () => {
     const resume = (chunks: readonly number[]) => {
       const game = new GameEngine({ randomSeed: 1, spawning: false });
       game.start();

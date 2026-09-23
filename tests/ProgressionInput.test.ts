@@ -65,7 +65,7 @@ describe('progression keyboard input', () => {
   it('does not map Enter while playing and keeps reverse inside the engine', () => {
     const game = new GameEngine({
       spawning: false,
-      cycle: { forcedAnomaliesByCycle: { 2: ['reverse'] } },
+      director: { forcedAnomaliesByCycle: { 2: ['reverse'] } },
     });
     game.start();
     const commands: unknown[] = [];

@@ -1,4 +1,5 @@
-import type { UpgradeChoice, UpgradeId, UpgradeModifiers, UpgradeOffer, UpgradeSnapshot } from './progressionTypes';
+import type { UpgradeChoice, UpgradeId, UpgradeModifiers, UpgradeOffer, UpgradeSnapshot, WaveProfile } from './progressionTypes';
+import { MAX_FALL_SPEED, MIN_WAVE_INTERVAL_MS } from './constants';
 import type { RandomSource } from './random';
 
 const DEFINITIONS: Readonly<Record<UpgradeId, Omit<UpgradeChoice, 'level'>>> = {
@@ -13,6 +14,13 @@ const DEFINITIONS: Readonly<Record<UpgradeId, Omit<UpgradeChoice, 'level'>>> = {
 const UPGRADE_IDS: readonly UpgradeId[] = [
   'stabilizer', 'comboRelay', 'salvage', 'deepPulse', 'anomalyShield', 'lastStand',
 ];
+
+export const clampWaveProfile = (profile: WaveProfile, speedMultiplier: number): WaveProfile =>
+  Object.freeze({
+    ...profile,
+    speed: Math.min(MAX_FALL_SPEED, profile.speed * speedMultiplier),
+    intervalMs: Math.max(MIN_WAVE_INTERVAL_MS, profile.intervalMs),
+  });
 
 function freeze<T extends object>(value: T): Readonly<T> {
   return Object.freeze(value);

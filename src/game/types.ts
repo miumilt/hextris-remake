@@ -92,6 +92,7 @@ export type GameEvent =
 
 export interface GameSnapshot {
   readonly mode: GameMode;
+  readonly opening: { readonly remainingMs: number; readonly previewLanes: readonly number[] };
   readonly score: number;
   readonly combo: number;
   readonly orientation: number;

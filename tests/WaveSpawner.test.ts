@@ -9,10 +9,53 @@ const profile = (overrides: Partial<WaveProfile> = {}): WaveProfile => ({
   patternWeights: { single: 1, pair: 0, opposite: 0, halfCircle: 0, circle: 0, spiral: 0 },
   forcedPattern: null,
   forcedPatternSequence: null,
+  forcedAnchorLane: null,
+  authoredWaveId: null,
+  entryDelayMs: 0,
   ...overrides,
 });
 
 describe('WaveSpawner', () => {
+  it('previews the exact cached first wave and releases it after 1200 ms', () => {
+    const spawner = new WaveSpawner(new SeededRandom(7));
+    const lanes = spawner.prime(profile({ forcedPattern: 'halfCircle', forcedAnchorLane: 0 }), 1_200);
+    expect(lanes).toEqual([0, 1, 2]);
+    expect(spawner.getPreviewLanes()).toEqual(lanes);
+    expect(spawner.update(1_199, profile())).toEqual([]);
+    expect(spawner.update(1, profile()).map(({ lane }) => lane)).toEqual(lanes);
+    expect(spawner.getPreviewLanes()).toEqual([]);
+  });
+
+  it('does not consume the seeded opening wave twice', () => {
+    const ordinary = new WaveSpawner(new SeededRandom(31));
+    const primed = new WaveSpawner(new SeededRandom(31));
+    const first = ordinary.update(100, profile());
+    const second = ordinary.update(100, profile());
+    primed.prime(profile(), 1_200);
+    expect(primed.update(1_200, profile())).toEqual(first);
+    expect(primed.update(100, profile())).toEqual(second);
+  });
+
+  it('spends one authored threat wave once, then returns to weighted patterns', () => {
+    const spawner = new WaveSpawner({ next: () => 0 });
+    const authored = profile({ intervalMs: 100, forcedPattern: 'circle', forcedAnchorLane: 0,
+      authoredWaveId: '2:pressure:circle:0' });
+    expect(spawner.update(100, authored)).toHaveLength(6);
+    expect(spawner.update(100, authored)).toHaveLength(1);
+  });
+
+  it('preserves authored entry delay and spiral spacing across update chunks', () => {
+    const authored = profile({ intervalMs: 2_000, forcedPattern: 'spiral', forcedAnchorLane: 4,
+      authoredWaveId: '6:pressure:spiral:4', entryDelayMs: 450 });
+    const run = (chunks: readonly number[]) => {
+      const spawner = new WaveSpawner({ next: () => 0 });
+      return chunks.flatMap((chunk) => spawner.update(chunk, authored));
+    };
+    expect(run([2_450]).map(({ lane }) => lane)).toEqual([4]);
+    expect(run([2_610]).map(({ lane }) => lane)).toEqual([4, 5]);
+    expect(run([2_610])).toEqual(run([2_000, 450, 160]));
+  });
+
   it('creates the original-style lane patterns', () => {
     const spawner = new WaveSpawner(new SeededRandom(7));
 

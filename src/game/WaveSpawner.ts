@@ -59,6 +59,8 @@ function buildPattern(pattern: WavePattern, anchor: number, colorIndexes: readon
 export class WaveSpawner {
   private waveRemainingMs: number | null = null;
   private pending: PatternEntry[] = [];
+  private scheduled: { readonly entries: readonly PatternEntry[]; remainingMs: number } | null = null;
+  private readonly consumedAuthoredWaveIds = new Set<string>();
   private forcedSequenceActive = false;
   private forcedSequenceIndex = 0;
 
@@ -72,6 +74,22 @@ export class WaveSpawner {
     return buildPattern(pattern, anchor, colorIndexes);
   }
 
+  public prime(profile: WaveProfile, delayMs: number): readonly number[] {
+    this.validateProfile(profile);
+    if (!Number.isFinite(delayMs) || delayMs < 0) throw new RangeError('delayMs must be finite and non-negative');
+    if (this.scheduled !== null || this.pending.length > 0 || this.waveRemainingMs !== null) {
+      throw new Error('WaveSpawner is already primed');
+    }
+    const entries = Object.freeze(this.buildWave(profile).map((entry) => Object.freeze(entry)));
+    this.scheduled = { entries, remainingMs: delayMs };
+    this.waveRemainingMs = profile.intervalMs;
+    return this.getPreviewLanes();
+  }
+
+  public getPreviewLanes(): readonly number[] {
+    return Object.freeze(this.scheduled?.entries.map(({ lane }) => lane) ?? []);
+  }
+
   public getNextEventMs(profile: WaveProfile): number {
     this.validateProfile(profile);
     this.syncForcedSequence(profile);
@@ -79,7 +97,9 @@ export class WaveSpawner {
     const untilPending = this.pending.length === 0
       ? Number.POSITIVE_INFINITY
       : Math.min(...this.pending.map((entry) => entry.delayMs));
-    return Math.min(this.waveRemainingMs, untilPending);
+    return this.scheduled === null
+      ? Math.min(this.waveRemainingMs, untilPending)
+      : Math.min(this.scheduled.remainingMs, untilPending);
   }
 
   public update(deltaMs: number, profile: WaveProfile): readonly SpawnRequest[] {
@@ -90,6 +110,16 @@ export class WaveSpawner {
 
     const ready = this.releaseReady(0, profile.speed);
     let remainingMs = deltaMs;
+    if (this.scheduled !== null) {
+      const stepMs = Math.min(remainingMs, this.scheduled.remainingMs);
+      this.scheduled.remainingMs -= stepMs;
+      remainingMs -= stepMs;
+      if (this.scheduled.remainingMs <= 0) {
+        this.pending.push(...this.scheduled.entries);
+        this.scheduled = null;
+        ready.push(...this.releaseReady(0, profile.speed));
+      }
+    }
     while (remainingMs > 0) {
       const untilPending = this.pending.length === 0
         ? Number.POSITIVE_INFINITY
@@ -132,14 +162,25 @@ export class WaveSpawner {
   }
 
   private scheduleWave(profile: WaveProfile): void {
+    this.pending.push(...this.buildWave(profile));
+  }
+
+  private buildWave(profile: WaveProfile): PatternEntry[] {
     const sequence = profile.forcedPatternSequence;
+    const useAuthored = profile.forcedPattern !== null
+      && (profile.authoredWaveId === null || !this.consumedAuthoredWaveIds.has(profile.authoredWaveId));
     const pattern = sequence !== null && sequence.length > 0
       ? sequence[this.forcedSequenceIndex++ % sequence.length]!
-      : profile.forcedPattern ?? this.selectPattern(profile);
-    const anchor = Math.floor(this.random.next() * SIDE_COUNT);
+      : useAuthored ? profile.forcedPattern! : this.selectPattern(profile);
+    if (useAuthored && profile.authoredWaveId !== null) this.consumedAuthoredWaveIds.add(profile.authoredWaveId);
+    const anchor = useAuthored && profile.forcedAnchorLane !== null
+      ? profile.forcedAnchorLane : Math.floor(this.random.next() * SIDE_COUNT);
     const colorIndexes = OFFSETS[pattern].map(() => Math.floor(this.random.next() * BLOCK_COLORS.length));
 
-    this.pending.push(...this.createPattern(pattern, anchor, colorIndexes));
+    const entries = this.createPattern(pattern, anchor, colorIndexes);
+    return useAuthored && profile.entryDelayMs > 0
+      ? entries.map((entry) => ({ ...entry, delayMs: entry.delayMs + profile.entryDelayMs }))
+      : entries;
   }
 
   private syncForcedSequence(profile: WaveProfile): void {
