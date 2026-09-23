@@ -39,7 +39,7 @@ Task 3: complete
 Task 4: complete
 Task 5: complete
 Task 6: complete
-Task 7: pending
+Task 7: implemented; independent review pending at user-requested pause
 Task 8: pending
 Task 9: pending
 
@@ -72,3 +72,5 @@ Task 5 minor (deferred): `MAX_WARNING_CUE_MS = 3_200` duplicates a ThreatDirecto
 
 Task 6: complete (commits 689ea28..94cf120, independent review/two scoped re-reviews approved with no Critical/Important findings). The Canvas now uses explicit six-layer order, legible opening and bonus token, truthful DRIFT/INERTIA cue placement, exact 90+800 ms transfer, delayed shockwaves, bounded effects, and reduced-motion local contours. Visual captures were opened at 1280×720; sparse opening contrast was improved and bonus label raised to 12 CSS px. Fresh controller verification: 282/282 tests across 24 files, TypeScript, production build/source packaging, and diff check pass. Task 7 is next.
 Task 6 handoff: runtime `main.ts` still does not call `presentation.beginRun()`; Task 8 owns that integration. Task 7 owns the persistent semantic bonus slot and side-attached DOM warning copy.
+
+User requested a handoff/pause on 2026-09-23 due remaining limits. Task 7 implementation is committed at cf673d5 but has not received an independent review. Fresh controller verification after that commit: 287/287 tests across 24 files, TypeScript, production build/source packaging, and `git diff --check` all pass. No Task 8 or Task 9 work starts in this session. A tracked root HANDOFF.md summarizes the transfer and next actions; browser/test artifacts and ignored SDD reports are not pushed by Git.
