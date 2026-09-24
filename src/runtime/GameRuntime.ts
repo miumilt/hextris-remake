@@ -1,5 +1,7 @@
 import { FIXED_STEP_MS } from '../game/constants';
 import type { GameCommand, GameEvent, GameSnapshot } from '../game/types';
+import type { PresentationSnapshot } from '../presentation/PresentationSystem';
+import type { EffectsSnapshot } from '../render/EffectsSystem';
 
 export interface RuntimeEngine {
   update(ms: number): readonly GameEvent[];
@@ -14,6 +16,8 @@ export interface GameRuntimeOptions {
   readonly onStep?: (ms: number) => void;
   readonly render?: (alpha: number) => void;
   readonly onResize?: (width: number, height: number, dpr: number) => void;
+  readonly getPresentationSnapshot?: () => PresentationSnapshot;
+  readonly getEffectsSnapshot?: () => EffectsSnapshot;
 }
 
 export class GameRuntime {
@@ -94,9 +98,25 @@ export class GameRuntime {
 
   public renderGameToText(): string {
     const snapshot = this.engine.getSnapshot();
+    const presentation = this.options.getPresentationSnapshot?.();
+    const effects = this.options.getEffectsSnapshot?.();
+    const activeCueKinds = effects === undefined ? [] : [
+      ...effects.anomalyCues.map((cue) => `${cue.warning ? 'warning' : 'anomaly'}:${cue.anomaly}`),
+      ...effects.anticipations.map((cue) => `anticipation:${cue.kind}`),
+      ...(effects.bonusImpact === null ? [] : [`bonus:${effects.bonusImpact.bonus}`]),
+      ...(effects.shockwaves.length > 0 ? ['shockwave'] : []),
+      ...(effects.slowTrailRemainingMs > 0 ? ['slowTrail'] : []),
+    ];
     return JSON.stringify({
       ...snapshot,
       stacks: snapshot.stacks.flatMap((blocks, side) => blocks.length ? [{ side, blocks }] : []),
+      presentation: {
+        openingStage: presentation?.opening?.stage ?? null,
+        noticeTitle: presentation?.notice?.title ?? null,
+        transferBonus: presentation?.transfer?.bonus ?? null,
+        transferAgeMs: presentation?.transfer?.ageMs ?? null,
+      },
+      effects: { hitStopRemainingMs: effects?.hitStopRemainingMs ?? 0, activeCueKinds },
       coordinateSystem: 'center origin; +x right; +y down; lanes clockwise from top',
     });
   }

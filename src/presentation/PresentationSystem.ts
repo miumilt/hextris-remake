@@ -87,6 +87,7 @@ export class PresentationSystem {
   private replacedBonus: BonusType | null = null;
   private replacedBonusRemainingMs = 0;
   private readonly firstSeenAnomalies = new Set<AnomalyType>();
+  private firstSeenForNotice = new WeakMap<MutableNotice, readonly AnomalyType[]>();
   private announcedPressureCycle: number | null = null;
 
   public beginRun(previewLanes: readonly number[]): void {
@@ -181,11 +182,11 @@ export class PresentationSystem {
         }
       }
     }
-    this.mergeNotices(candidates);
     for (const { notice, anomalies } of firstSeenCandidates) {
-      if (this.notice !== notice && !this.queuedNotices.includes(notice)) continue;
-      for (const anomaly of anomalies) this.firstSeenAnomalies.add(anomaly);
+      this.firstSeenForNotice.set(notice, anomalies);
     }
+    this.mergeNotices(candidates);
+    this.markDisplayedAnomalies();
   }
 
   public update(deltaMs: number, mode: GameMode = 'playing'): void {
@@ -205,6 +206,7 @@ export class PresentationSystem {
       }
       noticeTimeMs -= untilExpiryMs;
       this.notice = this.queuedNotices.shift() ?? null;
+      this.markDisplayedAnomalies();
     }
     if (this.transfer !== null) {
       this.transfer.ageMs += dt;
@@ -240,6 +242,7 @@ export class PresentationSystem {
     this.replacedBonus = null;
     this.replacedBonusRemainingMs = 0;
     this.firstSeenAnomalies.clear();
+    this.firstSeenForNotice = new WeakMap();
     this.announcedPressureCycle = null;
   }
 
@@ -276,6 +279,13 @@ export class PresentationSystem {
       .map(({ notice }) => notice);
     this.notice = unique.shift() ?? null;
     this.queuedNotices = unique;
+  }
+
+  private markDisplayedAnomalies(): void {
+    if (this.notice === null) return;
+    for (const anomaly of this.firstSeenForNotice.get(this.notice) ?? []) {
+      this.firstSeenAnomalies.add(anomaly);
+    }
   }
 
   private freezeNotice(notice: MutableNotice | null): PresentationNotice | null {

@@ -3,6 +3,7 @@ import { GameEngine } from '../src/game/GameEngine';
 import { InputController } from '../src/runtime/InputController';
 import { ScreenController } from '../src/ui/ScreenController';
 import { PresentationSystem } from '../src/presentation/PresentationSystem';
+import { GameRuntime } from '../src/runtime/GameRuntime';
 
 const cleanups: (() => void)[] = [];
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()));
@@ -24,6 +25,37 @@ function key(game: GameEngine, value: string) {
 }
 
 describe('progression keyboard input', () => {
+  it('freezes the opening on pause and resumes it while retaining upgrade focus', () => {
+    const game = progressionInput(31);
+    const presentation = new PresentationSystem();
+    presentation.beginRun(game.getSnapshot().opening.previewLanes);
+    const runtime = new GameRuntime(game, {
+      onStep: (ms) => presentation.update(ms, game.getSnapshot().mode),
+    });
+    runtime.advanceTime(400);
+    const openingAge = presentation.snapshot().opening?.ageMs;
+    key(game, 'Escape');
+    runtime.advanceTime(1_000);
+    expect(game.getSnapshot().mode).toBe('paused');
+    expect(presentation.snapshot().opening?.ageMs).toBe(openingAge);
+    key(game, 'Escape');
+    runtime.advanceTime(100);
+    expect(game.getSnapshot().mode).toBe('playing');
+    expect(presentation.snapshot().opening?.ageMs).toBeCloseTo(openingAge! + 100);
+
+    game.update(225_000);
+    expect(game.getSnapshot().mode).toBe('upgrade');
+    document.body.innerHTML = '<main id="ui-root"></main>';
+    const screen = new ScreenController(document.getElementById('ui-root')!);
+    cleanups.push(() => screen.destroy());
+    screen.render(game.getSnapshot(), presentation.snapshot());
+    const choices = [...document.querySelectorAll<HTMLButtonElement>('[data-action="upgrade"]')];
+    expect(document.activeElement).toBe(choices[0]);
+    key(game, 'ArrowRight');
+    screen.render(game.getSnapshot(), presentation.snapshot());
+    expect(document.activeElement).toBe(choices[1]);
+  });
+
   it('uses arrows for rotation while playing and selection while choosing', () => {
     const game = progressionInput();
     key(game, 'ArrowRight');

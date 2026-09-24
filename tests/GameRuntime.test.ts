@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GameEngine } from '../src/game/GameEngine';
 import { FIXED_STEP_MS } from '../src/game/constants';
 import { GameRuntime } from '../src/runtime/GameRuntime';
+import { PresentationSystem } from '../src/presentation/PresentationSystem';
+import { EffectsSystem } from '../src/render/EffectsSystem';
+import type { GameSnapshot } from '../src/game/types';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -9,6 +12,86 @@ afterEach(() => {
 });
 
 describe('GameRuntime', () => {
+  it('advances the engine opening through the public fixed-step hook', () => {
+    const engine = new GameEngine({ spawning: false, randomSeed: 31 });
+    const presentation = new PresentationSystem();
+    engine.start();
+    presentation.beginRun(engine.getSnapshot().opening.previewLanes);
+    const runtime = new GameRuntime(engine, {
+      onStep: (ms) => presentation.update(ms, engine.getSnapshot().mode),
+    });
+    runtime.advanceTime(600);
+    expect(engine.getSnapshot().opening.remainingMs).toBeCloseTo(600);
+    expect(presentation.snapshot().opening?.stage).toBe('guides');
+  });
+
+  it('exposes concise presentation and effect status through public QA JSON', () => {
+    const engine = new GameEngine({ spawning: false, randomSeed: 31 });
+    const presentation = new PresentationSystem();
+    const effects = new EffectsSystem();
+    engine.start();
+    presentation.beginRun(engine.getSnapshot().opening.previewLanes);
+    const token = { id: 7, type: 'pulse' as const, lane: 2, distance: 72, speed: 150 };
+    presentation.consume([{ type: 'bonusCollected', bonus: 'pulse', token }]);
+    effects.consume([{ type: 'anomalyWarning', anomalies: ['reverse'], lanes: [0],
+      warningMs: 2_500, atActiveMs: 95_000 }]);
+    const runtime = new GameRuntime(engine, {
+      getPresentationSnapshot: () => presentation.snapshot(),
+      getEffectsSnapshot: () => effects.snapshot(),
+    });
+    const state = JSON.parse(runtime.renderGameToText());
+    expect(state).toMatchObject({
+      mode: 'playing', elapsedMs: 0,
+      opening: { remainingMs: 1200, previewLanes: engine.getSnapshot().opening.previewLanes },
+      cycle: { number: 1, phase: 'settle', progress: 0, threat: expect.any(Object) },
+      presentation: { openingStage: 'assemble', noticeTitle: 'БОНУС: ИМПУЛЬС',
+        transferBonus: 'pulse', transferAgeMs: 0 },
+      effects: { hitStopRemainingMs: 0, activeCueKinds: expect.arrayContaining(['warning:reverse']) },
+    });
+    expect(JSON.stringify(state)).not.toMatch(/particles|originX|originY/);
+  });
+
+  it('freezes visual clocks while paused and clears them before restart flush', () => {
+    const presentation = new PresentationSystem();
+    const effects = new EffectsSystem();
+    presentation.beginRun([1, 2]);
+    presentation.update(500, 'playing');
+    const token = { id: 7, type: 'pulse' as const, lane: 2, distance: 72, speed: 150 };
+    presentation.consume([{ type: 'bonusCollected', bonus: 'pulse', token }]);
+    effects.consume([{ type: 'bonusCollected', bonus: 'pulse', token }]);
+    const before = { presentation: presentation.snapshot(), effects: effects.snapshot() };
+    presentation.update(5_000, 'paused');
+    expect(presentation.snapshot()).toEqual(before.presentation);
+    effects.reset();
+    presentation.reset();
+    presentation.beginRun([1, 2]);
+    expect(presentation.snapshot()).toMatchObject({ transfer: null, opening: { ageMs: 0 } });
+    expect(effects.snapshot().hitStopRemainingMs).toBe(0);
+  });
+
+  it('replays the same seed after a partial opening and bonus transfer', () => {
+    const clean = new GameEngine({ randomSeed: 31, maxStackDepth: 100 });
+    clean.start();
+    const pristinePreview = clean.getSnapshot().opening.previewLanes;
+    const pristineEvents = clean.update(90_000);
+    const pristineSnapshot = clean.getSnapshot();
+
+    const replay = new GameEngine({ randomSeed: 31, maxStackDepth: 100 });
+    const presentation = new PresentationSystem();
+    replay.start();
+    presentation.beginRun(replay.getSnapshot().opening.previewLanes);
+    replay.update(600);
+    presentation.consume([{ type: 'bonusCollected', bonus: 'pulse',
+      token: { id: 7, type: 'pulse', lane: 2, distance: 72, speed: 150 } }]);
+    presentation.update(300, 'playing');
+    replay.restart();
+    presentation.reset();
+    presentation.beginRun(replay.getSnapshot().opening.previewLanes);
+    expect(presentation.snapshot()).toMatchObject({ opening: { ageMs: 0, previewLanes: pristinePreview },
+      transfer: null, notice: null });
+    expect(replay.update(90_000)).toEqual(pristineEvents);
+    expect(replay.getSnapshot()).toEqual(pristineSnapshot);
+  });
   it('flushes commands and synchronizes consumers immediately without advancing time', () => {
     const game = new GameEngine({ spawning: false });
     game.start();
@@ -213,7 +296,7 @@ describe('GameRuntime', () => {
 
     const seeded = new GameEngine({ spawning: false });
     seeded.start();
-    let snapshot = { ...seeded.getSnapshot(), elapsedMs: 100 };
+    let snapshot: GameSnapshot = { ...seeded.getSnapshot(), elapsedMs: 100, mode: 'menu' };
     const order: string[] = [];
     const renderInputs: unknown[][] = [];
     let runtimeOptions: {
@@ -223,13 +306,13 @@ describe('GameRuntime', () => {
     } = {};
     let screenActions: { start(): void } | null = null;
     let effectsState = { channel: 'effects-live' };
-    let presentationState = { channel: 'presentation-live' };
+    let presentationState = { channel: 'presentation-live', opening: null as null | { ageMs: number; previewLanes: readonly number[] } };
 
     class FakeEngine {
       public getSnapshot() { order.push('engine-snapshot'); return snapshot; }
       public enqueue() {}
-      public start() { snapshot = { ...snapshot, elapsedMs: 0 }; }
-      public restart() { snapshot = { ...snapshot, elapsedMs: 0 }; }
+      public start() { snapshot = { ...snapshot, elapsedMs: 0, mode: 'playing' }; }
+      public restart() { snapshot = { ...snapshot, elapsedMs: 0, mode: 'playing' }; }
       public returnToMenu() { snapshot = { ...snapshot, elapsedMs: 0, mode: 'menu' }; }
     }
     class FakeEffects {
@@ -242,7 +325,11 @@ describe('GameRuntime', () => {
       public consume() { order.push('presentation-consume'); }
       public update() { order.push('presentation-update'); }
       public snapshot() { return presentationState; }
-      public reset() { order.push('presentation-reset'); presentationState = { channel: 'presentation-empty' }; }
+      public reset() { order.push('presentation-reset'); presentationState = { channel: 'presentation-empty', opening: null }; }
+      public beginRun(lanes: readonly number[]) {
+        order.push('presentation-begin');
+        presentationState = { channel: 'presentation-run', opening: { ageMs: 0, previewLanes: lanes } };
+      }
     }
     class FakeRenderer {
       public resize() {}
@@ -283,6 +370,8 @@ describe('GameRuntime', () => {
 
     try {
       await import('../src/main');
+      snapshot = { ...snapshot, mode: 'playing' };
+      runtimeOptions.onEvents?.([]);
       order.length = 0;
       runtimeOptions.onEvents?.([]);
       runtimeOptions.onStep?.(FIXED_STEP_MS);
@@ -294,13 +383,15 @@ describe('GameRuntime', () => {
       ]);
       expect(renderInputs.at(-1)).toHaveLength(4);
 
+      snapshot = { ...snapshot, mode: 'menu', elapsedMs: 100 };
       order.length = 0;
       screenActions!.start();
-      expect(order.slice(0, 4)).toEqual([
-        'effects-reset', 'presentation-reset', 'runtime-reset', 'runtime-flush',
+      expect(order.slice(0, 5)).toEqual([
+        'effects-reset', 'presentation-reset', 'engine-snapshot', 'presentation-begin', 'runtime-reset',
       ]);
       expect(renderInputs.at(-1)?.[1]).toEqual({ channel: 'effects-empty' });
-      expect(renderInputs.at(-1)?.[2]).toEqual({ channel: 'presentation-empty' });
+      expect(renderInputs.at(-1)?.[2]).toEqual({ channel: 'presentation-run',
+        opening: { ageMs: 0, previewLanes: seeded.getSnapshot().opening.previewLanes } });
     } finally {
       for (const module of mocked) vi.doUnmock(module);
       vi.resetModules();

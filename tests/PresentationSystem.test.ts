@@ -159,6 +159,25 @@ describe('PresentationSystem', () => {
     });
   });
 
+  it('reoffers a first-seen explanation if its queued notice is evicted before display', () => {
+    const presentation = new PresentationSystem();
+    const reverse = { type: 'anomalyStarted' as const, anomalies: ['reverse'] as const,
+      lanes: [0], atActiveMs: 95_000 };
+    presentation.consume([{ type: 'bonusActivated', bonus: 'slow' }]);
+    presentation.consume([reverse]);
+    expect(presentation.snapshot().queuedNotices.map(({ title }) => title)).toContain('РЕВЕРС');
+    presentation.consume([
+      { type: 'lastStand', side: 0, cells: [], blocks: [] },
+      { type: 'gameOver', score: 42 },
+    ]);
+    expect(presentation.snapshot().queuedNotices.map(({ title }) => title)).not.toContain('РЕВЕРС');
+    presentation.update(3_000, 'playing');
+    presentation.consume([reverse]);
+    expect(presentation.snapshot().notice).toMatchObject({
+      title: 'РЕВЕРС', body: 'УПРАВЛЕНИЕ МЕНЯЕТСЯ МЕСТАМИ', lifetimeMs: 1_800,
+    });
+  });
+
   it('uses a readable static notice when anomaly metadata is missing at runtime', () => {
     const presentation = new PresentationSystem();
     const unknown = 'unknown-at-runtime' as AnomalyType;

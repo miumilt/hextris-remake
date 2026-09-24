@@ -39,8 +39,8 @@ const runtime = new GameRuntime(engine, {
   },
   onStep: (ms) => {
     snapshot = engine.getSnapshot();
+    presentation.update(ms, snapshot.mode);
     if (snapshot.mode === 'playing') {
-      presentation.update(ms);
       effects.update(ms);
     }
     presentationSnapshot = presentation.snapshot();
@@ -51,12 +51,16 @@ const runtime = new GameRuntime(engine, {
     renderer.render(snapshot, effectsSnapshot, presentationSnapshot, alpha);
     screens.render(snapshot, presentationSnapshot);
   },
+  getPresentationSnapshot: () => presentation.snapshot(),
+  getEffectsSnapshot: () => effects.snapshot(),
 });
 
-const resetSession = (action: () => void): void => {
-  action();
+const resetSession = (action: () => void, beginsRun: boolean): void => {
   effects.reset();
   presentation.reset();
+  action();
+  snapshot = engine.getSnapshot();
+  if (beginsRun) presentation.beginRun(snapshot.opening.previewLanes);
   effectsSnapshot = effects.snapshot();
   presentationSnapshot = presentation.snapshot();
   runtime.resetTiming();
@@ -79,9 +83,9 @@ const confirmUpgrade = (): void => {
   runtime.flush();
 };
 screens.bind({
-  start: () => resetSession(() => engine.start()),
-  restart: () => resetSession(() => engine.restart()),
-  returnToMenu: () => resetSession(() => engine.returnToMenu()),
+  start: () => resetSession(() => engine.start(), true),
+  restart: () => resetSession(() => engine.restart(), true),
+  returnToMenu: () => resetSession(() => engine.returnToMenu(), false),
   resume: togglePause,
   togglePause,
   selectUpgrade,

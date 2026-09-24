@@ -8,6 +8,27 @@ import { clampWaveProfile } from '../src/game/UpgradeSystem';
 const modifiers = { anomalyDurationMultiplier: 1, bonusIntervalMultiplier: 1 };
 
 describe('endless threat pressure', () => {
+  it('spawns a forced Pressure circle once at its authored lanes, then resumes ordinary waves', () => {
+    const game = new GameEngine({ randomSeed: 31, maxStackDepth: 100,
+      director: { forcedSituationsByCycle: { 1: { pattern: 'circle', anchorLane: 2, anomalies: [] } } } });
+    game.start();
+    game.update(55_000);
+    expect(game.getSnapshot().cycle).toMatchObject({ phase: 'pressure',
+      threat: { pattern: 'circle', anchorLane: 2, lanes: [2, 3, 4, 5, 0, 1] } });
+
+    const batches: { atMs: number; lanes: number[] }[] = [];
+    for (let index = 1; index <= 100; index += 1) {
+      const lanes = game.update(100).filter((event) => event.type === 'blockSpawned')
+        .map((event) => event.block.lane);
+      if (lanes.length > 0) batches.push({ atMs: index * 100, lanes });
+    }
+    const authored = batches.filter(({ lanes }) => lanes.length === 6);
+    expect(authored).toHaveLength(1);
+    expect(authored[0]!.lanes).toEqual([2, 3, 4, 5, 0, 1]);
+    expect(authored[0]!.atMs).toBe(1_400);
+    expect(batches.some(({ atMs }) => atMs > authored[0]!.atMs)).toBe(true);
+  });
+
   it('keeps modified late spawning inside both practical ceilings', () => {
     const result = clampWaveProfile({ intervalMs: 410, speed: 590,
       patternWeights: { single: 1, pair: 0, opposite: 0, halfCircle: 0, circle: 0, spiral: 0 },
