@@ -3,6 +3,7 @@
 // render_game_to_text; no engine internals or test-only game controls are used.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 
 const url = process.env.HEXTRIS_QA_URL ?? 'http://127.0.0.1:5173/';
@@ -21,10 +22,10 @@ const captured = new Map();
 const errors = [];
 const runs = [];
 const fairness = { firstAnomalyAtMs: null, shortestWarningMs: null, firstDoubleAtMs: null,
-  fastestFalling: 0, lateArrivalSamples: [] };
-let previous = null;
-let lastObservedArrivalMs = null;
-let arrivalIds = new Set();
+  fastestFalling: 0, lateArrivalSamples: [], warningEvidence: {}, activeEvidence: {} };
+const anomalyTypes = ['reverse', 'mirage', 'drift', 'colorShift', 'inertia'];
+const pausedCategories = new Set();
+const requiredPaused = ['opening', 'warning', 'anomaly', 'bonus-falling', 'bonus-transfer', 'slow', 'upgrade'];
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -55,7 +56,39 @@ async function capture(page, name, snapshot = null) {
   console.log(`captured ${name} at ${payload.elapsedMs}ms`);
 }
 
-function audit(snapshot) {
+export function assertRunCleared(snapshot, label) {
+  const cycle = snapshot.cycle;
+  assert(snapshot.elapsedMs === 0 && snapshot.score === 0 && snapshot.combo === 1
+    && snapshot.stacks.length === 0 && snapshot.falling.length === 0
+    && snapshot.fallingBonuses.length === 0 && snapshot.bonus.stored === null
+    && snapshot.bonus.slowRemainingMs === 0
+    && Object.values(snapshot.upgrades.levels).every((level) => level === 0)
+    && snapshot.upgrades.choices.length === 0 && cycle.totalActiveMs === 0
+    && cycle.warning.length === 0 && cycle.warningRemainingMs === 0
+    && cycle.anomalies.length === 0 && snapshot.presentation.transferBonus === null,
+  `${label} reset retained run-only state`);
+}
+
+export class QaAudit {
+  constructor() {
+    this.fairness = { firstAnomalyAtMs: null, shortestWarningMs: null, firstDoubleAtMs: null,
+      fastestFalling: 0, lateArrivalSamples: [], slowCadenceSamplesExcluded: 0,
+      warningEvidence: {}, activeEvidence: {} };
+    this.warningEpisode = null;
+    this.seenIds = new Set();
+    this.waves = [];
+    this.wasSlow = false;
+  }
+
+  resetArrivalTracking() {
+    this.seenIds.clear();
+    this.waves = [];
+    this.wasSlow = false;
+    this.warningEpisode = null;
+  }
+
+  ingest(snapshot) {
+  const fairness = this.fairness;
   const cycle = snapshot.cycle;
   if (cycle.anomalies.length > 0) {
     fairness.firstAnomalyAtMs ??= cycle.totalActiveMs;
@@ -66,33 +99,86 @@ function audit(snapshot) {
     }
   }
   if (cycle.warning.length > 0) {
-    assert(cycle.threat?.warningMs >= 2_500, 'Anomaly warning was shorter than 2500ms');
-    fairness.shortestWarningMs = Math.min(fairness.shortestWarningMs ?? Infinity, cycle.threat.warningMs);
+    const key = `${cycle.number}:${cycle.warning.join('+')}`;
+    if (this.warningEpisode?.key !== key) this.warningEpisode = {
+      key, types: [...cycle.warning], firstObservedMs: cycle.totalActiveMs,
+      firstRemainingMs: cycle.warningRemainingMs,
+    };
+  } else if (this.warningEpisode && cycle.anomalies.length > 0) {
+    const episode = this.warningEpisode;
+    const measuredMs = cycle.totalActiveMs - episode.firstObservedMs;
+    const requiredMs = episode.types.length > 1 ? 3_200 : 2_500;
+    // The first visible snapshot can be at most one 50ms sampling step after onset.
+    assert(measuredMs + 50 + 1e-6 >= requiredMs,
+      `Runtime warning ${episode.types.join('+')} was shorter than ${requiredMs}ms (${measuredMs}ms observed)`);
+    fairness.shortestWarningMs = Math.min(fairness.shortestWarningMs ?? Infinity, measuredMs);
+    for (const type of episode.types) fairness.warningEvidence[type] = {
+      firstObservedMs: episode.firstObservedMs, activatedMs: cycle.totalActiveMs,
+      measuredMs, samplingBoundMs: 50, requiredMs,
+    };
+    this.warningEpisode = null;
   }
+  for (const anomaly of cycle.anomalies) fairness.activeEvidence[anomaly.type] ??= cycle.totalActiveMs;
   if (snapshot.mode === 'upgrade') assert(cycle.number === 3 || cycle.number % 3 === 0,
     `Upgrade appeared at cycle ${cycle.number}`);
   for (const block of snapshot.falling) {
     fairness.fastestFalling = Math.max(fairness.fastestFalling, block.speed);
     assert(block.speed <= 600 + 1e-6, `Falling block exceeded 600: ${block.speed}`);
   }
-  if (cycle.totalActiveMs >= 420_000 && cycle.phase === 'settle') {
-    const ids = new Set(snapshot.falling.map((block) => block.id));
-    if ([...ids].some((id) => !arrivalIds.has(id))) {
-      if (lastObservedArrivalMs !== null) {
-        const delta = cycle.totalActiveMs - lastObservedArrivalMs;
-        fairness.lateArrivalSamples.push(delta);
-        // A wave can contain staggered sub-arrivals; only samples at or above
-        // 500ms represent the director's wave cadence.
-      }
-      lastObservedArrivalMs = cycle.totalActiveMs;
+  if (cycle.totalActiveMs >= 420_000 && snapshot.mode === 'playing') {
+    const slow = snapshot.bonus.slowRemainingMs > 0;
+    if (slow || this.wasSlow) {
+      for (const block of snapshot.falling) this.seenIds.add(block.id);
+      this.waves = [];
+      fairness.slowCadenceSamplesExcluded++;
+      this.wasSlow = slow;
+      return;
     }
-    arrivalIds = ids;
+    const arrivals = snapshot.falling.filter((block) => !this.seenIds.has(block.id))
+      .map((block) => ({ id: block.id, lane: block.lane, phase: cycle.phase,
+        // Distance is public; invert motion to recover the birth instant below tick resolution.
+        bornMs: cycle.totalActiveMs - (520 - block.distance) * 1000 / block.speed }))
+      .sort((a, b) => a.bornMs - b.bornMs || a.id - b.id);
+    for (const arrival of arrivals) {
+      this.seenIds.add(arrival.id);
+      const spiral = (arrival.phase === 'build' || arrival.phase === 'pressure')
+        ? this.waves.find((wave) => wave.count < 6 && wave.last
+          && arrival.lane === (wave.last.lane + 1) % 6
+          && Math.abs(arrival.bornMs - wave.last.bornMs - 160) <= 2)
+        : null;
+      if (spiral) {
+        spiral.last = arrival;
+        spiral.count++;
+        continue;
+      }
+      const latest = this.waves.at(-1);
+      if (latest && Math.abs(arrival.bornMs - latest.startMs) <= 2) continue;
+      if (latest) {
+        const gap = arrival.bornMs - latest.startMs;
+        assert(gap >= 500 - 1e-5, `Late ordinary cadence ${gap.toFixed(1)}ms below 500ms: `
+          + `next=${JSON.stringify(arrival)} waves=${JSON.stringify(this.waves)}`);
+        fairness.lateArrivalSamples.push(gap);
+      }
+      this.waves.push({ startMs: arrival.bornMs, last: arrival, count: 1 });
+      this.waves = this.waves.filter((wave) => arrival.bornMs - wave.last.bornMs <= 960);
+    }
   }
-  if (previous && snapshot.elapsedMs < previous.elapsedMs) {
-    arrivalIds = new Set();
-    lastObservedArrivalMs = null;
   }
-  previous = snapshot;
+}
+
+const auditState = new QaAudit();
+
+function audit(snapshot) {
+  auditState.ingest(snapshot);
+  Object.assign(fairness, auditState.fairness);
+}
+
+function normalCoverageComplete() {
+  return names.filter((name) => !name.startsWith('27-') && !name.startsWith('28-'))
+    .every((name) => captured.has(name))
+    && anomalyTypes.every((type) => captured.has(`warning-${type}`) && captured.has(`active-${type}`))
+    && requiredPaused.every((category) => pausedCategories.has(category))
+    && fairness.lateArrivalSamples.length > 0;
 }
 
 async function observe(page, snapshot) {
@@ -107,6 +193,11 @@ async function observe(page, snapshot) {
     await capture(page, '06-first-90-seconds', snapshot);
   if (snapshot.cycle.warning.length) await capture(page, '07-anomaly-warning', snapshot);
   if (snapshot.cycle.anomalies.length) await capture(page, '08-anomaly-active', snapshot);
+  for (const type of anomalyTypes) {
+    if (snapshot.cycle.warning.includes(type)) await capture(page, `warning-${type}`, snapshot);
+    if (snapshot.cycle.anomalies.some((anomaly) => anomaly.type === type))
+      await capture(page, `active-${type}`, snapshot);
+  }
   if (snapshot.fallingBonuses.length) await capture(page, '09-bonus-falling', snapshot);
   if (snapshot.presentation.transferBonus) await capture(page, '10-bonus-collected', snapshot);
   if (snapshot.bonus.stored && !snapshot.presentation.transferBonus
@@ -131,6 +222,40 @@ async function observe(page, snapshot) {
     await capture(page, '23-late-cap', snapshot);
   if (snapshot.presentation.noticeTitle?.includes('ПОСЛЕДН')) await capture(page, '24-last-stand', snapshot);
   if (snapshot.mode === 'gameOver') await capture(page, '25-game-over', snapshot);
+}
+
+async function pauseTransient(page, snapshot) {
+  const categories = [];
+  if (snapshot.mode === 'playing') {
+    if (snapshot.opening.remainingMs > 0) categories.push('opening');
+    if (snapshot.cycle.warning.length) categories.push('warning');
+    if (snapshot.cycle.anomalies.length) categories.push('anomaly');
+    if (snapshot.fallingBonuses.length) categories.push('bonus-falling');
+    if (snapshot.presentation.transferBonus) categories.push('bonus-transfer');
+    if (snapshot.bonus.slowRemainingMs > 0) categories.push('slow');
+    if (snapshot.effects.hitStopRemainingMs > 0) categories.push('hit-stop');
+  } else if (snapshot.mode === 'upgrade') categories.push('upgrade');
+  for (const category of categories) {
+    if (pausedCategories.has(category)) continue;
+    if (category === 'upgrade') {
+      const frozen = await advance(page, 5_000);
+      assert(JSON.stringify(frozen) === JSON.stringify(snapshot), 'Upgrade state advanced while selected');
+      await capture(page, 'paused-upgrade', frozen);
+    } else {
+      await page.keyboard.press('Escape');
+      const paused = await advance(page, 1000 / 60);
+      assert(paused.mode === 'paused', `Escape did not pause ${category}`);
+      const frozen = await advance(page, 5_000);
+      assert(JSON.stringify(frozen) === JSON.stringify(paused), `Paused ${category} state advanced`);
+      await capture(page, `paused-${category}`, frozen);
+      if (category === 'opening') await capture(page, '29-paused-transient', frozen);
+      await page.keyboard.press('Escape');
+      const resumed = await advance(page, 1000 / 60);
+      assert(resumed.mode === 'playing', `${category} did not resume`);
+    }
+    pausedCategories.add(category);
+    break; // Refresh the public snapshot before attempting a second category.
+  }
 }
 
 async function publicBot(page, snapshot, tick, holdForReplacement = false) {
@@ -206,25 +331,23 @@ async function run() {
       await page.locator('[data-action="play"]').click();
       let current = await state(page);
       await observe(page, current);
+      await pauseTransient(page, current);
       for (const duration of [300, 450, 400, 100]) {
         current = await advance(page, duration);
         await observe(page, current);
+        await pauseTransient(page, current);
       }
-      if (runIndex === 0) {
-        await page.keyboard.press('Escape');
-        const paused = await advance(page, 1000 / 60);
-        assert(paused.mode === 'paused', 'Escape did not pause the run');
-        const frozen = await advance(page, 5_000);
-        assert(JSON.stringify(frozen) === JSON.stringify(paused), 'Paused state advanced');
-        await capture(page, '29-paused-transient', paused);
-        await page.keyboard.press('Escape');
-        await advance(page, 1000 / 60);
-      }
-      for (let tick = 0; tick < 2_000; tick++) {
-        current = await advance(page, 250);
+      for (let tick = 0; tick < 8_000; tick++) {
+        const msToWarning = 42_000 - current.cycle.elapsedMs;
+        const fineWarning = current.cycle.warning.length > 0
+          || (current.cycle.number > 1 && msToWarning > -3_300 && msToWarning <= 500);
+        const stepMs = current.cycle.totalActiveMs >= 420_000 || fineWarning ? 50 : 250;
+        current = await advance(page, stepMs);
         await observe(page, current);
-        if (captured.size === names.length) break;
+        await pauseTransient(page, current);
+        current = await state(page);
         if (current.mode === 'gameOver') break;
+        if (normalCoverageComplete()) break;
         await publicBot(page, current, tick + runIndex,
           runIndex === 0 && !captured.has('12-bonus-replaced'));
       }
@@ -233,21 +356,20 @@ async function run() {
       if (current.mode === 'gameOver') {
         await page.locator('[data-action="retry"]').click();
         const reset = await state(page);
-        assert(reset.mode === 'playing' && reset.elapsedMs === 0 && reset.score === 0
-          && reset.stacks.length === 0 && reset.bonus.stored === null
-          && reset.cycle.anomalies.length === 0 && reset.presentation.transferBonus === null,
-        'Retry did not clear session state');
+        assert(reset.mode === 'playing', 'Retry did not return to play');
+        assertRunCleared(reset, 'Retry');
         await capture(page, '26-retry-reset', reset);
         await page.keyboard.press('Escape');
         await advance(page, 1000 / 60);
         await page.locator('[data-action="menu"]').click();
         const menu = await state(page);
-        assert(menu.mode === 'menu' && menu.elapsedMs === 0 && menu.bonus.stored === null,
-          'Menu reset retained run state');
+        assert(menu.mode === 'menu', 'Menu control did not return to menu');
+        assertRunCleared(menu, 'Menu');
       } else {
         break;
       }
-      if (captured.size === names.length) break;
+      auditState.resetArrivalTracking();
+      if (normalCoverageComplete()) break;
     }
     await context.close();
 
@@ -277,15 +399,23 @@ async function run() {
     const missing = names.filter((name) => !captured.has(name));
     await writeFile(resolve(output, 'run-report.json'), `${JSON.stringify({
       url, requested: names.length, captured: Object.fromEntries(captured), missing, fairness, runs,
+      missingAnomalies: anomalyTypes.filter((type) => !captured.has(`warning-${type}`) || !captured.has(`active-${type}`)),
+      pausedCategories: [...pausedCategories],
       consoleEntries: errors.length,
     }, null, 2)}\n`);
-    console.log(`${captured.size}/${names.length} named scenarios captured; ${errors.length} console entries`);
+    console.log(`${names.filter((name) => captured.has(name)).length}/${names.length} named scenarios captured; `
+      + `${captured.size - names.length} supplemental captures; ${errors.length} console entries`);
     if (missing.length) console.log(`Unreached through public controls: ${missing.join(', ')}`);
   }
   assert(errors.length === 0, 'Browser console errors or warnings were captured');
-  assert(captured.size === names.length, 'Some required QA states were not reached through public controls');
+  assert(names.every((name) => captured.has(name)), 'Some required QA states were not reached through public controls');
   assert(fairness.firstAnomalyAtMs >= 90_000, 'First anomaly breached the 90-second floor');
-  assert(fairness.shortestWarningMs >= 2_500, 'Observed warning breached the 2500ms floor');
+  assert(fairness.shortestWarningMs + 50 >= 2_500, 'Observed warning breached the 2500ms floor');
+  assert(anomalyTypes.every((type) => fairness.warningEvidence[type] && fairness.activeEvidence[type]
+    && captured.has(`warning-${type}`) && captured.has(`active-${type}`)),
+  'Missing named public warning/active evidence for an anomaly type');
+  assert(requiredPaused.every((category) => pausedCategories.has(category)),
+  'Missing pause/freeze/resume evidence for a transient category');
   assert(fairness.firstDoubleAtMs >= 360_000, 'First double threat breached the six-minute floor');
   assert(fairness.fastestFalling <= 600, 'Observed falling speed breached the 600 cap');
   assert(fairness.lateArrivalSamples.length > 0
@@ -293,4 +423,5 @@ async function run() {
   'Observed late Settle arrivals breached the 500ms cadence floor');
 }
 
-run().catch((error) => { console.error(error); process.exitCode = 1; });
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
+  run().catch((error) => { console.error(error); process.exitCode = 1; });
