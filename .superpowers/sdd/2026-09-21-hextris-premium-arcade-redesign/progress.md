@@ -39,7 +39,7 @@ Task 3: complete
 Task 4: complete
 Task 5: complete
 Task 6: complete
-Task 7: implemented; independent review pending at user-requested pause
+Task 7: complete
 Task 8: pending
 Task 9: pending
 
@@ -74,3 +74,5 @@ Task 6: complete (commits 689ea28..94cf120, independent review/two scoped re-rev
 Task 6 handoff: runtime `main.ts` still does not call `presentation.beginRun()`; Task 8 owns that integration. Task 7 owns the persistent semantic bonus slot and side-attached DOM warning copy.
 
 User requested a handoff/pause on 2026-09-23 due remaining limits. Task 7 implementation is committed at cf673d5 but has not received an independent review. Fresh controller verification after that commit: 287/287 tests across 24 files, TypeScript, production build/source packaging, and `git diff --check` all pass. No Task 8 or Task 9 work starts in this session. A tracked root HANDOFF.md summarizes the transfer and next actions; browser/test artifacts and ignored SDD reports are not pushed by Git.
+
+User resumed on 2026-09-24. Task 7: complete (implementation cf673d5, review fix de0c2b5, independent review/re-review approved with no remaining Critical/Important findings). Global REVERSE/INERTIA warnings now show at the hub, authored block-effect warnings on their entry lanes, and active block anomalies at the hub because later spawns can occur elsewhere; mixed cues have one complete ARIA announcement. `tests/IndexLocalization.test.ts` now verifies actual Russian bonus-slot meaning. Implementer verification: 291/291 tests across 24 files, TypeScript, build/source packaging, diff check, and 1280×720 browser captures with no page errors. Controller opened previous normal/reduced-motion bonus and warning captures and confirmed they remain legible. Task 8 is next.
