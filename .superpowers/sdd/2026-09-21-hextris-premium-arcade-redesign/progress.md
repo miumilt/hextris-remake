@@ -40,7 +40,7 @@ Task 4: complete
 Task 5: complete
 Task 6: complete
 Task 7: complete
-Task 8: pending
+Task 8: complete
 Task 9: pending
 
 Task 1 ruling: the exponential formulas in the brief are exact and the tabulated values are rounded to one decimal; phase multipliers apply after the base curve and the 500 ms floor applies last. Cost if wrong: a profile assertion may move by a rounding digit, but the approved behavioral ranges and late ceilings remain exact.
@@ -76,3 +76,5 @@ Task 6 handoff: runtime `main.ts` still does not call `presentation.beginRun()`;
 User requested a handoff/pause on 2026-09-23 due remaining limits. Task 7 implementation is committed at cf673d5 but has not received an independent review. Fresh controller verification after that commit: 287/287 tests across 24 files, TypeScript, production build/source packaging, and `git diff --check` all pass. No Task 8 or Task 9 work starts in this session. A tracked root HANDOFF.md summarizes the transfer and next actions; browser/test artifacts and ignored SDD reports are not pushed by Git.
 
 User resumed on 2026-09-24. Task 7: complete (implementation cf673d5, review fix de0c2b5, independent review/re-review approved with no remaining Critical/Important findings). Global REVERSE/INERTIA warnings now show at the hub, authored block-effect warnings on their entry lanes, and active block anomalies at the hub because later spawns can occur elsewhere; mixed cues have one complete ARIA announcement. `tests/IndexLocalization.test.ts` now verifies actual Russian bonus-slot meaning. Implementer verification: 291/291 tests across 24 files, TypeScript, build/source packaging, diff check, and 1280×720 browser captures with no page errors. Controller opened previous normal/reduced-motion bonus and warning captures and confirmed they remain legible. Task 8 is next.
+
+Task 8: complete (implementation 72fd81d, independent task review approved with no Critical/Important/Minor findings). Real PLAY/RETRY starts the presentation opening with exact preview lanes on the first flush; mode-aware visual clocks freeze outside playing; reset/replay after partial opening and transfer remains deterministic. Public QA JSON exposes concise presentation/effect state. Full-engine authored Pressure spawning and queued-first-seen eviction regressions were added. The zero-time deferred bonus final speed product is <=600 by director cap and upgrade multiplier <=1, so no production fix was needed. Controller-approved plan deviation: `src/game/types.ts` was already sufficient and received no gratuitous hunk; `tests/ProgressionInput.test.ts` gained meaningful pause/upgrade regressions. Implementer verification: 298/298 tests, TypeScript, build/source packaging, diff check, Edge action loop and browser captures, console errors []. Controller opened first PLAY, guides, pause, and RETRY captures; first-flush JSON reports playing/opening at 1200 ms with stage assemble. Task 9 is next.
