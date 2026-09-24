@@ -332,6 +332,56 @@ describe('ScreenController', () => {
     expect(root.querySelector('.danger-panel')).toBeNull();
   });
 
+  it('places global reverse and inertia control warnings at the hub, not on authored wave lanes', () => {
+    const screen = new ScreenController(root);
+    const current = snapshot({ mode: 'playing' });
+    const threat = { pattern: 'pair' as const, anchorLane: 4, lanes: [4, 5],
+      anomalies: ['reverse' as const], warningMs: 2500, entryDelayMs: 0, bonusIncompatible: false,
+      evidence: { seedCycle: 2, phase: 'pressure' as const, budget: 6, spent: 4,
+        combinationKey: 'pair:reverse:4' } };
+    screen.render({ ...current, cycle: { ...current.cycle, warning: ['reverse'],
+      warningRemainingMs: 2500, threat } }, emptyPresentation());
+    expect(root.querySelector('[data-side="center"].field-warning')?.textContent).toContain('РЕВЕРС');
+    expect(root.querySelectorAll('.field-warning[data-side="4"], .field-warning[data-side="5"]')).toHaveLength(0);
+
+    screen.render({ ...current, cycle: { ...current.cycle, anomalies: [{ type: 'inertia', remainingMs: 1800 }],
+      threat: { ...threat, anomalies: ['inertia'] } } }, emptyPresentation());
+    expect(root.querySelector('[data-side="center"].field-warning')?.textContent).toContain('ИНЕРЦИЯ');
+    expect(root.querySelectorAll('.field-warning[data-side="4"], .field-warning[data-side="5"]')).toHaveLength(0);
+  });
+
+  it('splits a mixed control and block warning without losing either name for screen readers', () => {
+    const screen = new ScreenController(root);
+    const current = snapshot({ mode: 'playing' });
+    screen.render({ ...current, cycle: { ...current.cycle, warning: ['mirage', 'inertia'],
+      warningRemainingMs: 3200,
+      threat: { pattern: 'pair', anchorLane: 2, lanes: [2, 3], anomalies: ['mirage', 'inertia'],
+        warningMs: 3200, entryDelayMs: 0, bonusIncompatible: false,
+        evidence: { seedCycle: 6, phase: 'pressure', budget: 12, spent: 8,
+          combinationKey: 'pair:mirage+inertia:2' } } } }, emptyPresentation());
+    const control = root.querySelector<HTMLElement>('[data-side="center"].field-warning');
+    expect(control?.textContent).toContain('ИНЕРЦИЯ');
+    expect(control?.textContent).not.toContain('МИРАЖ');
+    expect(root.querySelector('[data-side="2"].field-warning')?.textContent).toContain('МИРАЖ');
+    expect(root.querySelector('[data-side="3"].field-warning')?.textContent).toContain('МИРАЖ');
+    expect(control?.getAttribute('aria-label')).toContain('МИРАЖ + ИНЕРЦИЯ');
+    expect(root.querySelectorAll('.field-warning[role="status"]')).toHaveLength(1);
+    expect(root.querySelectorAll('.field-warning[aria-hidden="true"]')).toHaveLength(2);
+  });
+
+  it('keeps an ongoing block anomaly status off expired authored-wave lanes', () => {
+    const screen = new ScreenController(root);
+    const current = snapshot({ mode: 'playing' });
+    screen.render({ ...current, cycle: { ...current.cycle,
+      anomalies: [{ type: 'mirage', remainingMs: 1800 }],
+      threat: { pattern: 'pair', anchorLane: 4, lanes: [4, 5], anomalies: ['mirage'],
+        warningMs: 2500, entryDelayMs: 0, bonusIncompatible: false,
+        evidence: { seedCycle: 2, phase: 'pressure', budget: 6, spent: 4,
+          combinationKey: 'pair:mirage:4' } } } }, emptyPresentation());
+    expect(root.querySelector('[data-side="center"].field-warning')?.textContent).toContain('МИРАЖ АКТИВНО');
+    expect(root.querySelectorAll('.field-warning[data-side="4"], .field-warning[data-side="5"]')).toHaveLength(0);
+  });
+
   it('rotates an overflowing stack cue with the actual playfield orientation', () => {
     const screen = new ScreenController(root);
     const current = snapshot({ mode: 'playing' });

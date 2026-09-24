@@ -159,13 +159,25 @@ export class ScreenController {
       upgradeRail.hidden = marks.length === 0;
     }
 
-    const warning = snapshot.cycle.warning.map((type) => ANOMALY_LABELS[type]);
-    const active = snapshot.cycle.anomalies.map((anomaly) => ANOMALY_LABELS[anomaly.type]);
-    const warningText = warning.length > 0 ? `${warning.join(' + ')} ЧЕРЕЗ ${Math.ceil(snapshot.cycle.warningRemainingMs / 1000)} С`
-      : active.length > 0 ? `${active.join(' + ')} АКТИВНО` : '';
-    const warningSides = warningText ? (snapshot.cycle.threat?.lanes.length
-      ? snapshot.cycle.threat.lanes : ['center']) : [];
-    this.renderSideCues('.field-warning-host', 'field-warning', warningSides, () => warningText);
+    const warningTypes = snapshot.cycle.warning.length > 0
+      ? snapshot.cycle.warning : snapshot.cycle.anomalies.map((anomaly) => anomaly.type);
+    const suffix = snapshot.cycle.warning.length > 0
+      ? ` ЧЕРЕЗ ${Math.ceil(snapshot.cycle.warningRemainingMs / 1000)} С` : ' АКТИВНО';
+    const names = (types: readonly AnomalyType[]): string => types.map((type) => ANOMALY_LABELS[type]).join(' + ');
+    const controlTypes = warningTypes.filter((type) => type === 'reverse' || type === 'inertia');
+    const blockTypes = warningTypes.filter((type) => type !== 'reverse' && type !== 'inertia');
+    // An active block anomaly affects later spawns too; authored lanes are truthful only before onset.
+    const lanes = snapshot.cycle.warning.length > 0 ? snapshot.cycle.threat?.lanes ?? [] : [];
+    const warningSides: (number | string)[] = [];
+    if (warningTypes.length > 0) {
+      if (controlTypes.length > 0 || lanes.length === 0) warningSides.push('center');
+      if (blockTypes.length > 0 && lanes.length > 0) warningSides.push(...lanes);
+    }
+    const fullWarning = warningTypes.length > 0 ? `${names(warningTypes)}${suffix}` : '';
+    const centerWarning = `${names(lanes.length > 0 ? controlTypes : warningTypes)}${suffix}`;
+    const laneWarning = `${names(blockTypes)}${suffix}`;
+    this.renderSideCues('.field-warning-host', 'field-warning', warningSides,
+      (side) => side === 'center' ? centerWarning : laneWarning, fullWarning);
     const dangerSides = snapshot.stacks.flatMap((stack, side) =>
       stack.length >= MAX_STACK_DEPTH - 2
         ? [(side - snapshot.orientation + snapshot.stacks.length) % snapshot.stacks.length] : []);
@@ -231,6 +243,7 @@ export class ScreenController {
 
   private renderSideCues(
     selector: string, className: string, sides: readonly (number | string)[], copy: (side: number | string) => string,
+    announcement?: string,
   ): void {
     const host = this.root.querySelector<HTMLElement>(selector);
     if (!host) return;
@@ -250,10 +263,12 @@ export class ScreenController {
       }
       if (className === 'field-warning' && index > 0) {
         node.removeAttribute('role');
+        node.removeAttribute('aria-label');
         node.setAttribute('aria-hidden', 'true');
       } else {
         node.setAttribute('role', 'status');
         node.removeAttribute('aria-hidden');
+        if (announcement) node.setAttribute('aria-label', announcement);
       }
       const text = copy(side);
       if (node.textContent !== text) node.textContent = text;
