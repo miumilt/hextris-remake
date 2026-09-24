@@ -12,6 +12,7 @@ const inputs = [
   'index.html', 'src', 'package.json', 'package-lock.json', 'tsconfig.json',
   'vite.config.ts', 'vitest.config.ts', 'tests', 'docs', 'README.md', ...notices,
   'scripts/package-source.mjs',
+  'test-artifacts/run-premium-arcade-qa.mjs',
 ];
 
 // Vite must have produced a fresh dist first. Copy only the explicit build

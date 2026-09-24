@@ -32,7 +32,11 @@ it('packages matching build sources and notices while excluding dependencies and
   ];
   const files = ['index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.ts',
     'vitest.config.ts', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'SOURCE.md',
-    'src/main.ts', 'tests/example.test.ts', ...progressionFiles];
+    'src/main.ts', 'tests/example.test.ts',
+    'src/game/ThreatDirector.ts', 'tests/ThreatDirector.test.ts',
+    'docs/superpowers/specs/2026-09-21-hextris-premium-arcade-redesign.md',
+    'docs/superpowers/plans/2026-09-21-hextris-premium-arcade-redesign.md',
+    'test-artifacts/run-premium-arcade-qa.mjs', ...progressionFiles];
   try {
     for (const file of files) {
       mkdirSync(resolve(fixture, file, '..'), { recursive: true });
@@ -43,7 +47,7 @@ it('packages matching build sources and notices while excluding dependencies and
     mkdirSync(join(fixture, 'dist/assets'), { recursive: true });
     writeFileSync(join(fixture, 'dist/index.html'), 'built application');
     for (const excluded of ['node_modules', 'test-artifacts']) {
-      mkdirSync(join(fixture, excluded));
+      mkdirSync(join(fixture, excluded), { recursive: true });
       writeFileSync(join(fixture, excluded, 'private.txt'), 'must not distribute');
     }
     execFileSync(process.execPath, [join(fixture, 'scripts/package-source.mjs')], { cwd: fixture });
@@ -51,7 +55,10 @@ it('packages matching build sources and notices while excluding dependencies and
       'LICENSE', 'SOURCE.md', 'THIRD_PARTY_NOTICES.md', 'assets', 'index.html', 'source',
     ]);
     const bundled = readdirSync(join(fixture, 'dist/source'), { recursive: true }) as string[];
-    expect(bundled.some(file => /node_modules|test-artifacts|dist/.test(file))).toBe(false);
+    expect(bundled.some(file => /node_modules|dist/.test(file))).toBe(false);
+    expect(bundled.filter(file => String(file).startsWith('test-artifacts')).map(String).sort()).toEqual([
+      'test-artifacts', join('test-artifacts', 'run-premium-arcade-qa.mjs'),
+    ].sort());
     for (const file of [...files, 'scripts/package-source.mjs']) {
       expect(readFileSync(join(fixture, 'dist/source', file))).toEqual(readFileSync(join(fixture, file)));
     }

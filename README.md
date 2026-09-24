@@ -2,7 +2,7 @@
 
 A desktop browser arcade game built with TypeScript, Canvas 2D, and Vite. Rotate the hexagon to collect connected groups of three or more matching blocks. Clears collapse the stacks, quick successive clears build a combo, and overflowing the safe boundary ends the run.
 
-An endless run is split into 55-second `FLOW`, `PRESSURE`, and `SURGE` cycles. Later cycles introduce announced anomalies, clears can award a replaceable one-slot bonus, and every completed cycle offers a choice between two run-only upgrades before play resumes.
+An endless run follows 75-second cycles: 20 seconds of `SETTLE`, 35 of `BUILD`, 15 of `PRESSURE`, and 5 of `RELEASE`. The opening 1.2 seconds assembles the field and previews the first arrival. Later cycles spend a bounded threat budget on authored patterns and announced anomalies; speed and arrival cadence approach soft ceilings while situations grow more complex. Every third completed cycle offers a choice between two run-only upgrades.
 
 ## Controls
 
@@ -14,7 +14,7 @@ An endless run is split into 55-second `FLOW`, `PRESSURE`, and `SURGE` cycles. L
 - `RESTART` / `RETRY`: begin a fresh run. `MENU`: return without reloading.
 - `F`: technical fullscreen toggle for the browser test harness. In fullscreen, Escape belongs to the browser.
 
-Hiding the tab pauses the game. The compact HUD shows score, combo, cycle phase, anomaly warnings, and the stored bonus without covering the playfield. Bonus tokens carry a distinct glyph in the field; collecting one raises an acquisition notice and sends that glyph toward the stable lower-right slot. The slot always names the stored bonus and shows `SPACE — ACTIVATE`. SLOW additionally displays its remaining six-second rule. With the system reduced-motion preference enabled, names, descriptions, glyphs, and controls remain readable while travel, assembly, fragments, shake, and long transitions are reduced to short fades.
+Hiding the tab pauses the game. The compact HUD shows score, combo, cycle phase, anomaly warnings, and the stored bonus without covering the playfield. Anomalies give at least 2.5 seconds of warning; cues mark the affected side or control. Bonus tokens carry a distinct glyph in the field; collecting one raises an acquisition notice and sends that glyph toward the stable lower-right slot. A new bonus replaces the stored one automatically. The slot retains its full name, effect description, and `SPACE — ACTIVATE` hint until use or replacement. SLOW additionally displays its remaining six-second rule. With the system reduced-motion preference enabled, names, descriptions, glyphs, and controls remain readable while travel, assembly, fragments, shake, and long transitions are reduced to short fades.
 
 ## Development
 
@@ -52,9 +52,9 @@ Serve the entire generated `dist/` directory with a static web server. The build
 
 ## Architecture
 
-`GameEngine`, `HexGrid`, `MatchResolver`, and `WaveSpawner` implement deterministic rules without browser dependencies. `CycleDirector`, `BonusSystem`, and `UpgradeSystem` own endless-run pacing and progression. `InputController` queues keyboard commands. `GameRuntime` consumes them at a fixed 60 Hz, caps delayed real frames, pauses hidden tabs, and publishes immutable snapshots and events. `PresentationSystem` turns those events into bounded notices, slot attention, and bonus-transfer timing; `EffectsSystem` owns bounded world-space motion; `CanvasRenderer` draws both immutable snapshots. `ScreenController` owns the semantic HTML screens through one delegated event listener. `main.ts` composes the modules and resets session state, progression, presentation, effects, and timing together.
+`GameEngine`, `HexGrid`, `MatchResolver`, and `WaveSpawner` implement deterministic rules without browser dependencies. `ThreatDirector`, `BonusSystem`, and `UpgradeSystem` own endless-run pacing and progression. `InputController` queues keyboard commands. `GameRuntime` consumes them at a fixed 60 Hz, caps delayed real frames, pauses hidden tabs, and publishes immutable snapshots and events. `PresentationSystem` turns those events into bounded notices, slot attention, and bonus-transfer timing; `EffectsSystem` owns bounded world-space motion; `CanvasRenderer` draws both immutable snapshots. `ScreenController` owns the semantic HTML screens through one delegated event listener. `main.ts` composes the modules and resets session state, progression, presentation, effects, and timing together.
 
-Browser QA uses `window.render_game_to_text()` for concise current state and `window.advanceTime(ms)` for deterministic stepping. Paused and upgrade-selection stepping leave player state unchanged. Restarting or returning to the menu clears every run-only bonus, upgrade, anomaly, and Last Stand charge; there is no stored score or account state.
+Browser QA uses `window.render_game_to_text()` for concise current state and `window.advanceTime(ms)` for deterministic stepping. With the dev server running at `http://127.0.0.1:5173/`, run `node test-artifacts/run-premium-arcade-qa.mjs` using an installed Microsoft Edge browser. It writes named screenshots, matching JSON, console entries, and a coverage report under `test-artifacts/premium-arcade-qa/`. The runner uses only public controls and records unreached states honestly. Paused and upgrade-selection stepping leave player state unchanged. Restarting or returning to the menu clears every run-only bonus, upgrade, anomaly, and Last Stand charge; there is no stored score, account state, or other permanent progression.
 
 ## Attribution and license
 
