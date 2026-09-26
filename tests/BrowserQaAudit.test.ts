@@ -31,6 +31,43 @@ describe('public browser audit', () => {
     expect(audit.fairness.activeEvidence.reverse).toBe(122500);
   });
 
+  it('rejects a warning that disappears before activation even if the elapsed gap reaches 2500ms', () => {
+    const audit = new QaAudit();
+    audit.ingest(withCycle(120000, { warning: ['reverse'], warningRemainingMs: 2500 }));
+    expect(() => audit.ingest(withCycle(121000, { warning: [], anomalies: [] })))
+      .toThrow(/warning.*reverse.*interrupted/i);
+  });
+
+  it.each(['paused', 'upgrade'])('does not discard an interrupted warning in %s mode', (mode) => {
+    const audit = new QaAudit();
+    audit.ingest(withCycle(120000, { warning: ['reverse'], warningRemainingMs: 2500 }));
+    expect(() => audit.ingest({ ...withCycle(120000, { warning: [], anomalies: [] }), mode }))
+      .toThrow(/warning.*reverse.*interrupted/i);
+  });
+
+  it('keeps a paused warning episode until the matching anomaly activates', () => {
+    const audit = new QaAudit();
+    const warning = withCycle(120000, { warning: ['reverse'], warningRemainingMs: 2500 });
+    audit.ingest(warning);
+    audit.ingest({ ...warning, mode: 'paused' });
+    audit.ingest(warning);
+    audit.ingest(withCycle(122500, { anomalies: [{ type: 'reverse', remainingMs: 8000 }] }));
+    expect(audit.fairness.warningEvidence.reverse.measuredMs).toBe(2500);
+  });
+
+  it('rejects a replacement warning or activation by a different anomaly', () => {
+    const warning = withCycle(120000, { warning: ['reverse'], warningRemainingMs: 2500 });
+    const replacement = new QaAudit();
+    replacement.ingest(warning);
+    expect(() => replacement.ingest(withCycle(120050, { warning: ['mirage'], warningRemainingMs: 2500 })))
+      .toThrow(/warning.*reverse.*interrupted.*mirage/i);
+    const activation = new QaAudit();
+    activation.ingest(warning);
+    expect(() => activation.ingest(withCycle(122500, {
+      anomalies: [{ type: 'mirage', remainingMs: 8000 }],
+    }))).toThrow(/warning.*reverse.*different anomalies/i);
+  });
+
   it('fails a 480ms ordinary Build arrival gap using public distance and speed', () => {
     const audit = new QaAudit();
     audit.ingest(base(420100, { falling: [block(1, 420000, 420100, 0)] }));

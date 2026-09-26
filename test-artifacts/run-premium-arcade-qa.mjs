@@ -100,12 +100,16 @@ export class QaAudit {
   }
   if (cycle.warning.length > 0) {
     const key = `${cycle.number}:${cycle.warning.join('+')}`;
-    if (this.warningEpisode?.key !== key) this.warningEpisode = {
+    assert(this.warningEpisode === null || this.warningEpisode.key === key,
+      `Runtime warning ${this.warningEpisode?.types.join('+')} was interrupted by ${cycle.warning.join('+')}`);
+    if (this.warningEpisode === null) this.warningEpisode = {
       key, types: [...cycle.warning], firstObservedMs: cycle.totalActiveMs,
       firstRemainingMs: cycle.warningRemainingMs,
     };
   } else if (this.warningEpisode && cycle.anomalies.length > 0) {
     const episode = this.warningEpisode;
+    assert(episode.types.every((type) => cycle.anomalies.some((anomaly) => anomaly.type === type)),
+      `Runtime warning ${episode.types.join('+')} activated different anomalies`);
     const measuredMs = cycle.totalActiveMs - episode.firstObservedMs;
     const requiredMs = episode.types.length > 1 ? 3_200 : 2_500;
     // The first visible snapshot can be at most one 50ms sampling step after onset.
@@ -117,6 +121,8 @@ export class QaAudit {
       measuredMs, samplingBoundMs: 50, requiredMs,
     };
     this.warningEpisode = null;
+  } else if (this.warningEpisode) {
+    assert(false, `Runtime warning ${this.warningEpisode.types.join('+')} was interrupted before activation`);
   }
   for (const anomaly of cycle.anomalies) fairness.activeEvidence[anomaly.type] ??= cycle.totalActiveMs;
   if (snapshot.mode === 'upgrade') assert(cycle.number === 3 || cycle.number % 3 === 0,
