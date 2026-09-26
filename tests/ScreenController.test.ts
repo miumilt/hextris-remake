@@ -332,6 +332,25 @@ describe('ScreenController', () => {
     expect(root.querySelector('.danger-panel')).toBeNull();
   });
 
+  it('shows one readable circle warning with six exact compact lane markers and one full announcement', () => {
+    const screen = new ScreenController(root);
+    const current = snapshot({ mode: 'playing' });
+    screen.render({ ...current, cycle: { ...current.cycle, warning: ['drift'], warningRemainingMs: 2500,
+      threat: { pattern: 'circle', anchorLane: 2, lanes: [2, 3, 4, 5, 0, 1], anomalies: ['drift'],
+        warningMs: 2500, entryDelayMs: 0, bonusIncompatible: false,
+        evidence: { seedCycle: 2, phase: 'pressure', budget: 6, spent: 6, combinationKey: 'circle:drift:2' } } } },
+    emptyPresentation());
+    const semantic = root.querySelector<HTMLElement>('.field-warning[role="status"]');
+    expect(semantic?.dataset.side).toBe('center');
+    expect(semantic?.classList.contains('field-warning-raised')).toBe(true);
+    expect(semantic?.textContent).toBe('ДРЕЙФ ЧЕРЕЗ 3 С');
+    expect(semantic?.getAttribute('aria-label')).toBe('ДРЕЙФ ЧЕРЕЗ 3 С');
+    const markers = [...root.querySelectorAll<HTMLElement>('.field-warning-marker')];
+    expect(markers.map(({ dataset }) => dataset.side)).toEqual(['2', '3', '4', '5', '0', '1']);
+    expect(markers.every((marker) => marker.textContent === '' && marker.getAttribute('aria-hidden') === 'true')).toBe(true);
+    expect(root.querySelectorAll('.field-warning[role="status"]')).toHaveLength(1);
+  });
+
   it('places global reverse and inertia control warnings at the hub, not on authored wave lanes', () => {
     const screen = new ScreenController(root);
     const current = snapshot({ mode: 'playing' });
@@ -361,6 +380,7 @@ describe('ScreenController', () => {
           combinationKey: 'pair:mirage+inertia:2' } } } }, emptyPresentation());
     const control = root.querySelector<HTMLElement>('[data-side="center"].field-warning');
     expect(control?.textContent).toContain('ИНЕРЦИЯ');
+    expect(control?.classList.contains('field-warning-raised')).toBe(false);
     expect(control?.textContent).not.toContain('МИРАЖ');
     expect(root.querySelector('[data-side="2"].field-warning')?.textContent).toContain('МИРАЖ');
     expect(root.querySelector('[data-side="3"].field-warning')?.textContent).toContain('МИРАЖ');
@@ -379,6 +399,7 @@ describe('ScreenController', () => {
         evidence: { seedCycle: 2, phase: 'pressure', budget: 6, spent: 4,
           combinationKey: 'pair:mirage:4' } } } }, emptyPresentation());
     expect(root.querySelector('[data-side="center"].field-warning')?.textContent).toContain('МИРАЖ АКТИВНО');
+    expect(root.querySelector('[data-side="center"].field-warning')?.classList.contains('field-warning-raised')).toBe(true);
     expect(root.querySelectorAll('.field-warning[data-side="4"], .field-warning[data-side="5"]')).toHaveLength(0);
   });
 

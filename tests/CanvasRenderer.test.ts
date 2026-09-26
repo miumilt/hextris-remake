@@ -206,7 +206,7 @@ describe('CanvasRenderer', () => {
     renderer.render(new GameEngine().getSnapshot(), snapshot, presentation(), 0.5);
     expect(polygons.filter(({ points, style }) => points.length === 4 && typeof style === 'object').length).toBeGreaterThan(4);
     expect(polygons.flatMap((p) => p.points.flat()).every(Number.isFinite)).toBe(true);
-    expect(context.fillText).toHaveBeenCalledWith('×2', expect.any(Number), expect.any(Number));
+    expect(context.fillText).not.toHaveBeenCalledWith('×2', expect.any(Number), expect.any(Number));
     expect(JSON.stringify(snapshot)).toBe(before);
   });
 });

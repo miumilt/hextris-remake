@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { EffectsSystem } from '../src/render/EffectsSystem';
+import { PresentationSystem } from '../src/presentation/PresentationSystem';
 
 describe('progression effects', () => {
+  it('keeps rapid chain and world-event text in one semantic notice channel', () => {
+    const effects = new EffectsSystem({ random: () => 0.5 });
+    const presentation = new PresentationSystem();
+    const events = [
+      { type: 'matchCleared' as const, cells: [{ side: 0, index: 0 }], color: 'sky' as const, chain: 2 },
+      { type: 'matchCleared' as const, cells: [{ side: 0, index: 1 }], color: 'sky' as const, chain: 3 },
+      { type: 'cycleCompleted' as const, cycle: 2, atActiveMs: 150_000 },
+      { type: 'lastStand' as const, side: 3, cells: [], blocks: [] },
+    ];
+    effects.consume(events);
+    presentation.consume(events);
+    expect(effects.snapshot().labels).toEqual([]);
+    expect(presentation.snapshot().notice?.title).toBe('ПОСЛЕДНИЙ ШАНС');
+  });
   it('turns a normal clear into a bounded impact with a visual-only hit stop', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
@@ -18,7 +33,7 @@ describe('progression effects', () => {
     expect(snapshot.shockwaves[0]?.x).toBeCloseTo(20);
   });
 
-  it('amplifies a chain into a readable label, stronger ring, and larger fragment burst', () => {
+  it('amplifies a chain into a stronger ring and larger fragment burst', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
     effects.consume([
@@ -28,9 +43,7 @@ describe('progression effects', () => {
     const snapshot = effects.snapshot();
     expect(snapshot.shake).toEqual({ magnitude: 8, remainingMs: 120 });
     expect(snapshot.fragments).toHaveLength(11);
-    expect(snapshot.labels).toEqual([
-      { text: 'СЕРИЯ ×3', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
-    ]);
+    expect(snapshot.labels).toEqual([]);
     expect(snapshot.shockwaves).toMatchObject([
       { color: 'amber', ageMs: 0, lifetimeMs: 460, intensity: 0.85 },
     ]);
@@ -74,7 +87,7 @@ describe('progression effects', () => {
       shake: { magnitude: 7, remainingMs: 180 },
       hitStopRemainingMs: 80,
       shockwaves: [{ x: 40, y: 50, color: 'ivory', ageMs: 0, lifetimeMs: 520, intensity: 1 }],
-      labels: [{ text: 'ИМПУЛЬС', tone: 'coral', ageMs: 0, lifetimeMs: 620 }],
+      labels: [],
       screenFlash: { tone: 'coral', intensity: 0.75, remainingMs: 100 },
     });
     expect(effects.snapshot().fragments).toHaveLength(8);
@@ -195,12 +208,12 @@ describe('progression effects', () => {
       x !== originX || y !== originY)).toBe(true);
   });
 
-  it('announces anomaly starts transiently without retaining a cue when they end', () => {
+  it('accents anomaly starts transiently without retaining a cue when they end', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
 
     effects.consume([{ type: 'anomalyStarted', anomalies: ['inertia'], lanes: [0], atActiveMs: 119_500 }]);
     expect(effects.snapshot()).toMatchObject({
-      labels: [{ text: 'ИНЕРЦИЯ', tone: 'amber', ageMs: 0, lifetimeMs: 620 }],
+      labels: [],
       screenFlash: { tone: 'amber', intensity: 0.55, remainingMs: 100 },
     });
 
@@ -210,18 +223,14 @@ describe('progression effects', () => {
     expect(effects.snapshot().screenFlash).toBeNull();
   });
 
-  it('uses the authored spaced labels for camel-case bonuses and anomalies', () => {
-    const effects = new EffectsSystem({ random: () => 0.5 });
-
-    effects.consume([
-      { type: 'bonusRemoved', bonus: 'colorBreak', cells: [], blocks: [], scoreDelta: 0 },
+  it('keeps camel-case bonus and anomaly names in semantic notices', () => {
+    const presentation = new PresentationSystem();
+    presentation.consume([
+      { type: 'bonusActivated', bonus: 'colorBreak' },
       { type: 'anomalyStarted', anomalies: ['colorShift', 'inertia'], lanes: [0], atActiveMs: 420_200 },
     ]);
-
-    expect(effects.snapshot().labels.map(({ text }) => text)).toEqual([
-      'ЦВЕТОВОЙ ВЗРЫВ',
-      'СМЕНА ЦВЕТА + ИНЕРЦИЯ',
-    ]);
+    expect(presentation.snapshot().notice?.title).toBe('ЦВЕТОВОЙ ВЗРЫВ АКТИВИРОВАН');
+    expect(presentation.snapshot().queuedNotices.map(({ title }) => title)).toContain('СМЕНА ЦВЕТА + ИНЕРЦИЯ');
   });
 
   it('caps surge completion and last stand at the strongest shake and flash', () => {
@@ -237,10 +246,7 @@ describe('progression effects', () => {
     expect(effects.snapshot()).toMatchObject({
       shake: { magnitude: 8, remainingMs: 220 },
       screenFlash: { tone: 'coral', intensity: 1, remainingMs: 160 },
-      labels: [
-        { text: 'ЦИКЛ 2 ЗАВЕРШЁН', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
-        { text: 'ПОСЛЕДНИЙ ШАНС', tone: 'coral', ageMs: 0, lifetimeMs: 620 },
-      ],
+      labels: [],
     });
   });
 
@@ -257,11 +263,10 @@ describe('progression effects', () => {
     effects.consume(Array.from({ length: 13 }, () => pulse));
     const snapshot = effects.snapshot();
     expect(snapshot.shockwaves).toHaveLength(12);
-    expect(snapshot.labels).toHaveLength(6);
+    expect(snapshot.labels).toEqual([]);
     expect(Object.isFrozen(snapshot.shockwaves)).toBe(true);
     expect(Object.isFrozen(snapshot.shockwaves[0])).toBe(true);
     expect(Object.isFrozen(snapshot.labels)).toBe(true);
-    expect(Object.isFrozen(snapshot.labels[0])).toBe(true);
     expect(Object.isFrozen(snapshot.screenFlash)).toBe(true);
 
     for (let update = 0; update < 13; update += 1) effects.update(50);
@@ -270,7 +275,7 @@ describe('progression effects', () => {
     });
   });
 
-  it('keeps progression labels readable while reduced motion removes visual holds and movement', () => {
+  it('keeps reduced-motion effects local while semantic text stays in the presentation channel', () => {
     const effects = new EffectsSystem({ random: () => 0.5, reducedMotion: true });
 
     effects.consume([
@@ -288,11 +293,7 @@ describe('progression effects', () => {
       hitStopRemainingMs: 0,
       screenFlash: null,
       combo: { multiplier: 0, remainingMs: 0 },
-      labels: [
-        { text: 'СЕРИЯ ×3', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
-        { text: 'ИМПУЛЬС', tone: 'coral', ageMs: 0, lifetimeMs: 620 },
-        { text: 'ЦИКЛ 2 ЗАВЕРШЁН', tone: 'amber', ageMs: 0, lifetimeMs: 620 },
-      ],
+      labels: [],
     });
     expect(effects.snapshot().shockwaves).toHaveLength(1);
     expect(effects.snapshot().bonusImpact?.lifetimeMs).toBe(140);

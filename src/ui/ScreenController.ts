@@ -168,16 +168,19 @@ export class ScreenController {
     const blockTypes = warningTypes.filter((type) => type !== 'reverse' && type !== 'inertia');
     // An active block anomaly affects later spawns too; authored lanes are truthful only before onset.
     const lanes = snapshot.cycle.warning.length > 0 ? snapshot.cycle.threat?.lanes ?? [] : [];
+    const denseBlockWarning = blockTypes.length > 0 && lanes.length >= 3;
     const warningSides: (number | string)[] = [];
     if (warningTypes.length > 0) {
-      if (controlTypes.length > 0 || lanes.length === 0) warningSides.push('center');
+      if (controlTypes.length > 0 || lanes.length === 0 || denseBlockWarning) warningSides.push('center');
       if (blockTypes.length > 0 && lanes.length > 0) warningSides.push(...lanes);
     }
     const fullWarning = warningTypes.length > 0 ? `${names(warningTypes)}${suffix}` : '';
-    const centerWarning = `${names(lanes.length > 0 ? controlTypes : warningTypes)}${suffix}`;
+    const centerWarning = denseBlockWarning ? fullWarning
+      : `${names(lanes.length > 0 ? controlTypes : warningTypes)}${suffix}`;
     const laneWarning = `${names(blockTypes)}${suffix}`;
     this.renderSideCues('.field-warning-host', 'field-warning', warningSides,
-      (side) => side === 'center' ? centerWarning : laneWarning, fullWarning);
+      (side) => side === 'center' ? centerWarning : denseBlockWarning ? '' : laneWarning,
+      fullWarning, denseBlockWarning || lanes.length === 0);
     const dangerSides = snapshot.stacks.flatMap((stack, side) =>
       stack.length >= MAX_STACK_DEPTH - 2
         ? [(side - snapshot.orientation + snapshot.stacks.length) % snapshot.stacks.length] : []);
@@ -244,6 +247,7 @@ export class ScreenController {
   private renderSideCues(
     selector: string, className: string, sides: readonly (number | string)[], copy: (side: number | string) => string,
     announcement?: string,
+    raisedCenter = false,
   ): void {
     const host = this.root.querySelector<HTMLElement>(selector);
     if (!host) return;
@@ -260,6 +264,10 @@ export class ScreenController {
         node.className = className;
         node.dataset.side = key;
         host.append(node);
+      }
+      if (className === 'field-warning') {
+        node.classList.toggle('field-warning-marker', copy(side) === '');
+        node.classList.toggle('field-warning-raised', side === 'center' && raisedCenter);
       }
       if (className === 'field-warning' && index > 0) {
         node.removeAttribute('role');

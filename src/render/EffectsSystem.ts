@@ -1,12 +1,10 @@
 import { BLOCK_DEPTH, HEX_APOTHEM, SIDE_COUNT } from '../game/constants';
 import type { BlockColor, CellRef, GameEvent } from '../game/types';
 import type { AnomalyType, BonusType } from '../game/progressionTypes';
-import { getBonusPresentation } from '../presentation/bonusPresentation';
 import type { Point } from './geometry';
 
 const MAX_PARTICLES = 180;
 const MAX_SHOCKWAVES = 12;
-const MAX_LABELS = 6;
 const MAX_ASSEMBLIES = 36;
 const MAX_FRAGMENTS = 180;
 const MAX_LOCAL_CUES = 36;
@@ -26,13 +24,6 @@ const LANDING_SQUASH_MS = 110;
 const BONUS_IMPACT_LIFETIME_MS = 620 as const;
 const COLOR_BREAK_GROUP_COUNT = 16;
 
-const ANOMALY_LABELS: Readonly<Record<AnomalyType, string>> = Object.freeze({
-  reverse: 'РЕВЕРС',
-  mirage: 'МИРАЖ',
-  drift: 'ДРЕЙФ',
-  colorShift: 'СМЕНА ЦВЕТА',
-  inertia: 'ИНЕРЦИЯ',
-});
 
 export interface EffectParticle {
   readonly x: number;
@@ -215,7 +206,6 @@ interface MutableCombo extends Omit<ComboImpulse, 'ageMs' | 'remainingMs'> {
 }
 
 interface MutableShockwave extends Omit<Shockwave, 'ageMs'> { ageMs: number; }
-interface MutableLabel extends Omit<EffectLabel, 'ageMs'> { ageMs: number; }
 
 export class EffectsSystem {
   private anticipations: MutableAnticipation[] = [];
@@ -232,7 +222,6 @@ export class EffectsSystem {
   private shakeRemainingMs = 0;
   private combo: MutableCombo = this.emptyCombo();
   private shockwaves: MutableShockwave[] = [];
-  private labels: MutableLabel[] = [];
   private screenFlash: ScreenFlash | null = null;
   private hitStopRemainingMs = 0;
   private readonly random: () => number;
@@ -311,7 +300,6 @@ export class EffectsSystem {
             lifetimeMs: event.chain > 1 ? 460 : CLEAR_SHOCKWAVE_LIFETIME_MS,
             intensity: event.chain > 1 ? 0.85 : 0.55,
           });
-          if (event.chain > 1) this.addLabel(`СЕРИЯ ×${event.chain}`, 'amber', 620);
           break;
         case 'comboChanged':
           if (!this.reducedMotion) {
@@ -367,7 +355,6 @@ export class EffectsSystem {
               color: 'ivory', ageMs: 0, lifetimeMs: 520, intensity: 1 });
           }
           this.pulseActivationPending = false;
-          this.addLabel(getBonusPresentation(event.bonus).label, 'coral', 620);
           this.flash('coral', 0.75, 100);
           break;
         case 'anomalyWarning':
@@ -379,7 +366,6 @@ export class EffectsSystem {
           for (const anomaly of event.anomalies) {
             this.upsertAnomalyCue(anomaly, event.lanes, false, ORDINARY_EXPIRY_MS);
           }
-          this.addLabel(event.anomalies.map((anomaly) => ANOMALY_LABELS[anomaly]).join(' + '), 'amber', 620);
           this.flash('amber', 0.55, 100);
           break;
         case 'anomalyEnded':
@@ -392,14 +378,12 @@ export class EffectsSystem {
           break;
         case 'cycleCompleted':
           this.impact(8, 220);
-          this.addLabel(`ЦИКЛ ${event.cycle} ЗАВЕРШЁН`, 'amber', 620);
           this.flash('amber', 1, 160);
           break;
         case 'lastStand':
           this.impact(8, 220);
           this.addShockwave({ ...center, kind: 'rescue', delayMs: 0, color: 'ivory', ageMs: 0,
             lifetimeMs: 520, intensity: 0.9 });
-          this.addLabel('ПОСЛЕДНИЙ ШАНС', 'coral', 620);
           this.flash('coral', 1, 160);
           break;
         case 'gameOver':
@@ -415,7 +399,6 @@ export class EffectsSystem {
     this.anomalyCues = this.anomalyCues.slice(-MAX_ANOMALY_CUES);
     this.particles = this.particles.slice(-MAX_PARTICLES);
     this.shockwaves = this.shockwaves.slice(-MAX_SHOCKWAVES);
-    this.labels = this.labels.slice(-MAX_LABELS);
   }
 
   public update(deltaMs: number): void {
@@ -461,7 +444,6 @@ export class EffectsSystem {
     }
     for (const flash of this.flashes) flash.ageMs += dt;
     for (const shockwave of this.shockwaves) shockwave.ageMs += dt;
-    for (const label of this.labels) label.ageMs += dt;
     this.shakeRemainingMs = Math.max(0, this.shakeRemainingMs - dt);
     this.hitStopRemainingMs = Math.max(0, this.hitStopRemainingMs - dt);
     if (this.screenFlash !== null) {
@@ -479,7 +461,6 @@ export class EffectsSystem {
     this.particles = this.particles.filter((particle) => particle.ageMs < particle.lifetimeMs).slice(-MAX_PARTICLES);
     this.flashes = this.flashes.filter((flash) => flash.ageMs < flash.lifetimeMs);
     this.shockwaves = this.shockwaves.filter((shockwave) => shockwave.ageMs < shockwave.lifetimeMs + shockwave.delayMs);
-    this.labels = this.labels.filter((label) => label.ageMs < label.lifetimeMs);
     if (this.combo.ageMs >= this.combo.lifetimeMs) this.combo = this.emptyCombo();
     if (this.shakeRemainingMs === 0) this.shakeMagnitude = 0;
   }
@@ -495,7 +476,6 @@ export class EffectsSystem {
     const particles = Object.freeze(this.particles.map((particle) => Object.freeze({ ...particle })));
     const flashes = Object.freeze(this.flashes.map((flash) => Object.freeze({ ...flash })));
     const shockwaves = Object.freeze(this.shockwaves.map((shockwave) => Object.freeze({ ...shockwave })));
-    const labels = Object.freeze(this.labels.map((label) => Object.freeze({ ...label })));
     const combo = Object.freeze({
       ...this.combo,
       remainingMs: Math.max(0, this.combo.lifetimeMs - this.combo.ageMs),
@@ -518,7 +498,7 @@ export class EffectsSystem {
       shake: Object.freeze({ magnitude: this.shakeMagnitude, remainingMs: this.shakeRemainingMs }),
       combo,
       shockwaves,
-      labels,
+      labels: Object.freeze([]),
       screenFlash: this.screenFlash === null ? null : Object.freeze({ ...this.screenFlash }),
       hitStopRemainingMs: this.hitStopRemainingMs,
     });
@@ -539,7 +519,6 @@ export class EffectsSystem {
     this.shakeRemainingMs = 0;
     this.combo = this.emptyCombo();
     this.shockwaves = [];
-    this.labels = [];
     this.screenFlash = null;
     this.hitStopRemainingMs = 0;
   }
@@ -625,10 +604,6 @@ export class EffectsSystem {
       futureColor: details.futureColor ?? (warning ? null : previous?.futureColor ?? null),
       remainingImpulseMs: details.remainingImpulseMs ?? (warning ? 0 : previous?.remainingImpulseMs ?? 0),
     });
-  }
-
-  private addLabel(text: string, tone: EffectLabel['tone'], lifetimeMs: number): void {
-    this.labels.push({ text, tone, ageMs: 0, lifetimeMs });
   }
 
   private flash(tone: ScreenFlash['tone'], intensity: number, remainingMs: number): void {

@@ -175,7 +175,6 @@ export class CanvasRenderer {
     this.layer('screen-effects', () => {
       this.openingReady(presentation.opening);
       this.screenEffects(effects);
-      this.combo(effects);
     });
   }
 
@@ -999,42 +998,19 @@ export class CanvasRenderer {
     if (effects.screenFlash !== null) {
       const flash = effects.screenFlash;
       ctx.save();
-      ctx.globalAlpha = Math.min(0.72, Math.max(0, flash.intensity) * Math.min(1, flash.remainingMs / 90));
-      ctx.fillStyle = this.effectTone(flash.tone);
-      ctx.fillRect(0, 0, this.width, this.height);
+      ctx.globalAlpha = Math.min(0.42, Math.max(0, flash.intensity) * 0.42)
+        * Math.min(1, flash.remainingMs / 90);
+      ctx.strokeStyle = this.effectTone(flash.tone);
+      ctx.lineWidth = 2.5;
+      this.path(hexPoints({ x: this.width / 2, y: this.height / 2 },
+        (HEX_APOTHEM + 24) * this.scale, -TURN));
+      ctx.stroke();
       ctx.restore();
-      ctx.globalAlpha = 1;
     }
-    effects.labels.forEach((label, index) => {
-      const life = Math.max(0, 1 - this.finite(label.ageMs) / Math.max(1, this.finite(label.lifetimeMs, 1)));
-      if (life <= 0) return;
-      ctx.save();
-      ctx.globalAlpha = Math.min(1, life * 1.6);
-      ctx.fillStyle = this.effectTone(label.tone);
-      ctx.font = `700 ${Math.round(22 + life * 10)}px Arial, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label.text, this.width / 2, this.height * 0.34 + index * 34 - (1 - life) * 16);
-      ctx.restore();
-      ctx.globalAlpha = 1;
-    });
   }
 
   private effectTone(tone: 'ink' | 'coral' | 'amber'): string {
     return tone === 'ink' ? VISUAL_COLORS.ink : VISUAL_COLORS[tone];
-  }
-
-  private combo(effects: EffectsSnapshot): void {
-    const impulse = effects.combo;
-    if (impulse.multiplier < 2 || impulse.remainingMs <= 0) return;
-    const ctx = this.ctx;
-    const life = Math.max(0, 1 - impulse.ageMs / impulse.lifetimeMs);
-    // Score is centered at the top in the screen composition; this layer never shakes.
-    ctx.save(); ctx.globalAlpha = life;
-    ctx.fillStyle = VISUAL_COLORS.amber;
-    ctx.font = '600 20px Arial, sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText(`×${impulse.multiplier}`, this.width / 2 + 62, 75 - (1 - life) * 12);
-    ctx.restore();
   }
 
   private path(points: readonly Point[]): void {

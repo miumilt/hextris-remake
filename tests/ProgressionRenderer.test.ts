@@ -548,7 +548,7 @@ describe('progression rendering', () => {
     expect(guides(pressure.strokes).every(({ style }) => Number((style as string).split(',').at(-1)!.replace(')', '')) <= 0.22)).toBe(true);
   });
 
-  it('draws shockwaves in the shaken world but labels and flashes in stable screen space', () => {
+  it('draws shockwaves in the shaken world and a local rim in stable screen space', () => {
     const { renderer, fills, text, strokes } = surface();
     const effects: EffectsSnapshot = {
       ...baseEffects(),
@@ -561,8 +561,22 @@ describe('progression rendering', () => {
     renderer.render(snapshot(), effects, presentation(), 1);
 
     expect(strokes.some(({ style, depth }) => style === VISUAL_COLORS.ink && depth > 0)).toBe(true);
-    expect(text).toContainEqual(expect.objectContaining({ value: 'CHAIN ×2', depth: 1 }));
-    expect(fills).toContainEqual(expect.objectContaining({ x: 0, y: 0, width: 800, height: 600, depth: 1 }));
+    expect(text.some(({ value }) => value === 'CHAIN ×2')).toBe(false);
+    expect(strokes.some(({ style, depth, points }) => style === VISUAL_COLORS.coral
+      && depth === 1 && points.length === 6)).toBe(true);
+    expect(fills.some(({ width, height, depth }) => width === 800 && height === 600 && depth === 1)).toBe(false);
+  });
+
+  it('keeps strong event accents local without a tinted viewport or duplicate combo text', () => {
+    const { renderer, fills, text, strokes } = surface();
+    renderer.render(snapshot({ combo: 3 }), {
+      ...baseEffects(), combo: { multiplier: 3, x: 0, y: 0, ageMs: 0, lifetimeMs: 360, remainingMs: 360 },
+      screenFlash: { tone: 'coral', intensity: 1, remainingMs: 160 },
+    }, presentation(), 0);
+    expect(fills.filter(({ style, depth }) => style === VISUAL_COLORS.coral && depth === 1)).toEqual([]);
+    expect(strokes.some(({ style, alpha, depth, points }) => style === VISUAL_COLORS.coral
+      && depth === 1 && alpha > 0 && alpha <= 0.42 && points.length === 6)).toBe(true);
+    expect(text.some(({ value }) => value === '×3')).toBe(false);
   });
 
   it('holds one previous gameplay snapshot, then catches up, and clears the hold on a mode change', () => {
