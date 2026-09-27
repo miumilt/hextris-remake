@@ -49,6 +49,8 @@ const canonicalMs = (value: number): number => {
   return Math.round(value * 1e9) / 1e9;
 };
 
+const DRIFT_FINISH_DISTANCE = 200;
+
 export class GameEngine {
   private mode: GameMode = 'menu';
   private score = 0;
@@ -462,7 +464,7 @@ export class GameEngine {
       if (block.driftToLane !== undefined) {
         moved = {
           ...moved,
-          driftProgress: Math.max(0, Math.min(1, (360 - distance) / 160)),
+          driftProgress: Math.max(0, Math.min(1, (360 - distance) / (360 - DRIFT_FINISH_DISTANCE))),
         };
       }
       if (block.mirageLane !== undefined) {
@@ -509,9 +511,13 @@ export class GameEngine {
       const distance = canonicalMs(START_DISTANCE - (
         block.speed * (this.motionElapsedMs - (this.fallingBornAt.get(block.id) ?? this.motionElapsedMs))
       ) / 1000);
-      const collisionLane = block.driftToLane !== undefined ? block.driftToLane : block.lane;
+      const drifting = block.driftToLane !== undefined && distance > DRIFT_FINISH_DISTANCE;
+      const collisionLane = drifting ? block.lane : (block.driftToLane ?? block.lane);
       const side = this.grid.laneToSide(collisionLane);
-      const landingDistance = HEX_APOTHEM + this.grid.snapshot()[side]!.length * BLOCK_DEPTH;
+      const stackDistance = HEX_APOTHEM + this.grid.snapshot()[side]!.length * BLOCK_DEPTH;
+      const landingDistance = drifting
+        ? Math.max(stackDistance, DRIFT_FINISH_DISTANCE)
+        : stackDistance;
       const remainingMs = (distance - landingDistance) * 1000 / block.speed;
       nextMs = Math.min(nextMs, Math.max(0.001, remainingMs));
     }

@@ -40,6 +40,26 @@ function activate(game: GameEngine): void {
   expect(game.update(1)).toContainEqual(expect.objectContaining({ type: 'anomalyStarted' }));
 }
 
+function driftWithTallStack(stackSide: number): GameEngine {
+  const game = new GameEngine({
+    randomSeed: 1,
+    spawning: false,
+    maxStackDepth: 20,
+    director: { forcedSituationsByCycle: { 2: { pattern: 'single', anchorLane: 0, anomalies: ['drift'] } } },
+  });
+  game.start();
+  game.update(75_000);
+  game.update(42_000);
+  game.update(2_500);
+  expect(game.getSnapshot().cycle.anomalies.map(({ type }) => type)).toContain('drift');
+  for (const color of ['coral', 'amber', 'teal', 'sky', 'coral', 'amber'] as const) {
+    game.debugAttachGroup(color, [{ side: stackSide, count: 1 }]);
+  }
+  game.debugSpawn({ lane: 2, color: 'sky', speed: 100 });
+  expect(game.getSnapshot().falling[0]?.driftToLane).toBe(1);
+  return game;
+}
+
 function isDirectorEvent(event: GameEvent): event is DirectorEvent {
   return event.type === 'phaseChanged'
     || event.type === 'situationPrepared'
@@ -120,6 +140,34 @@ describe('telegraphed anomalies', () => {
         cell: { side: spawned.driftToLane, index: 0 },
       },
     ]);
+    expect(game.getSnapshot().stacks[2]).toEqual([]);
+  });
+
+  it('lands a drifting block on a tall origin stack regardless of update chunk size', () => {
+    const run = (chunks: readonly number[]) => {
+      const game = driftWithTallStack(2);
+      const events = chunks.flatMap((chunk) => game.update(chunk));
+      return { events, snapshot: game.getSnapshot() };
+    };
+
+    const large = run([4_000]);
+    const split = run(Array.from({ length: 40 }, () => 100));
+    expect(large).toEqual(split);
+    expect(large.events).toContainEqual(expect.objectContaining({
+      type: 'blockLanded', cell: { side: 2, index: 6 },
+    }));
+    expect(large.snapshot.falling).toEqual([]);
+  });
+
+  it('uses the target stack only when drift reaches distance 200', () => {
+    const game = driftWithTallStack(1);
+
+    expect(game.update(3_199)).toEqual([]);
+    expect(game.getSnapshot().falling[0]).toMatchObject({ distance: 200.1 });
+    expect(game.update(1)).toContainEqual(expect.objectContaining({
+      type: 'blockLanded', cell: { side: 1, index: 6 },
+    }));
+    expect(game.getSnapshot().falling).toEqual([]);
     expect(game.getSnapshot().stacks[2]).toEqual([]);
   });
 
