@@ -157,10 +157,15 @@ describe('progression effects', () => {
     const effects = new EffectsSystem({ random: () => 0.5 });
     effects.consume([{ type: 'anomalyWarning', anomalies: ['reverse', 'drift'], lanes: [2, 3], warningMs: 2500, atActiveMs: 119500 }]);
     expect(effects.snapshot().anomalyCues).toMatchObject([
-      { anomaly: 'reverse', lanes: [2, 3], warning: true, direction: -1 },
-      { anomaly: 'drift', lanes: [2, 3], warning: true, destinationLane: null },
+      { anomaly: 'reverse', lanes: [], warning: true, direction: -1 },
+      { anomaly: 'drift', lanes: [], warning: true, destinationLane: null },
     ]);
     effects.consume([{ type: 'anomalyStarted', anomalies: ['drift', 'colorShift', 'mirage', 'inertia'], lanes: [2], atActiveMs: 119500 }]);
+    expect(effects.snapshot().anomalyCues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ anomaly: 'drift', lanes: [], destinationLane: null }),
+      expect.objectContaining({ anomaly: 'colorShift', lanes: [], futureColor: null }),
+      expect.objectContaining({ anomaly: 'mirage', lanes: [], destinationLane: null }),
+    ]));
     effects.consume([{ type: 'blockSpawned', block: { id: 4, lane: 2, color: 'coral', distance: 520, speed: 150, driftToLane: 3, shiftToColor: 'teal', mirageLane: 1 } }]);
     effects.consume([{ type: 'rotationDelayed', steps: -1, remainingMs: 280 }]);
     expect(effects.snapshot().anomalyCues).toEqual(expect.arrayContaining([
@@ -173,6 +178,25 @@ describe('progression effects', () => {
     expect(effects.snapshot().anomalyCues.some(({ anomaly }) => anomaly === 'drift')).toBe(false);
   });
 
+  it('keeps global control cues at the hub through warning, onset, and delayed rotation', () => {
+    const effects = new EffectsSystem({ random: () => 0.5 });
+    effects.consume([{ type: 'anomalyWarning', anomalies: ['reverse'],
+      lanes: [3], warningMs: 2_500, atActiveMs: 117_000 }]);
+    expect(effects.snapshot().anomalyCues).toMatchObject([{ anomaly: 'reverse', lanes: [] }]);
+    effects.consume([{ type: 'anomalyEnded', anomalies: ['reverse'], atActiveMs: 127_000 },
+    { type: 'anomalyWarning', anomalies: ['mirage', 'inertia'],
+      lanes: [3], warningMs: 3_200, atActiveMs: 420_000 }]);
+    expect(effects.snapshot().anomalyCues.map(({ lanes }) => lanes)).toEqual([[], []]);
+    effects.consume([{ type: 'anomalyStarted', anomalies: ['mirage', 'inertia'],
+      lanes: [3], atActiveMs: 423_200 },
+    { type: 'rotationDelayed', steps: 1, remainingMs: 180 }]);
+    expect(effects.snapshot().anomalyCues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ anomaly: 'mirage', lanes: [], warning: false }),
+      expect.objectContaining({ anomaly: 'inertia', lanes: [], warning: false,
+        direction: 1, remainingImpulseMs: 180 }),
+    ]));
+  });
+
   it('keeps both double-threat cues for the full 3,200 ms warning before start', () => {
     const effects = new EffectsSystem();
     effects.consume([{
@@ -182,8 +206,8 @@ describe('progression effects', () => {
     expect(effects.snapshot().anomalyCues).toHaveLength(2);
     effects.update(3_199);
     expect(effects.snapshot().anomalyCues).toMatchObject([
-      { anomaly: 'mirage', warning: true, lanes: [1, 4], lifetimeMs: 3_200 },
-      { anomaly: 'drift', warning: true, lanes: [1, 4], lifetimeMs: 3_200 },
+      { anomaly: 'mirage', warning: true, lanes: [], lifetimeMs: 3_200 },
+      { anomaly: 'drift', warning: true, lanes: [], lifetimeMs: 3_200 },
     ]);
     effects.update(1);
     expect(effects.snapshot().anomalyCues).toEqual([]);

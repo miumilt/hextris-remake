@@ -386,8 +386,8 @@ describe('progression rendering', () => {
     expect(JSON.stringify(immutable)).toBe(before);
   });
 
-  it('keeps a reverse anomaly direction cue attached to its lane after the event cue expires', () => {
-    const { renderer, strokes } = surface();
+  it('keeps the reverse direction cue at the hub after the event cue expires', () => {
+    const { renderer, context } = surface();
     const current = snapshot();
     renderer.render({ ...current, cycle: {
       ...current.cycle, warning: [], warningRemainingMs: 0,
@@ -396,10 +396,12 @@ describe('progression rendering', () => {
         entryDelayMs: 0, bonusIncompatible: false,
         evidence: { seedCycle: 1, phase: 'build', budget: 1, spent: 1, combinationKey: 'reverse' } },
     } }, baseEffects(), presentation(), 0);
-    expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.amber && points.length >= 2)).toBe(true);
+    const arc = context.arc.mock.calls.find((call) => call[2] === 18)!;
+    expect(arc[0]).toBeCloseTo(0);
+    expect(arc[1]).toBeCloseTo(0);
   });
 
-  it('shows DRIFT affected lane without inventing a destination, then contours the real destination', () => {
+  it('shows a global DRIFT warning without inventing a route, then contours the real destination', () => {
     const { renderer, strokes } = surface();
     const fx = new EffectsSystem({ random: () => 0.5 });
     fx.consume([{ type: 'anomalyWarning', anomalies: ['drift'], lanes: [1],
@@ -410,7 +412,8 @@ describe('progression rendering', () => {
       return strokes.filter(({ style, points }) => style === VISUAL_COLORS.amber && points.length === 6);
     };
     const warning = draw();
-    expect(warning.some(stroke => Math.abs(Math.hypot(...center(stroke)) - 215) < 2)).toBe(true);
+    expect(warning.some(stroke => Math.hypot(...center(stroke)) < 2)).toBe(true);
+    expect(warning.some(stroke => Math.abs(Math.hypot(...center(stroke)) - 215) < 2)).toBe(false);
     expect(warning.some(stroke => Math.abs(Math.hypot(...center(stroke)) - 190) < 2)).toBe(false);
     fx.consume([{ type: 'blockSpawned', block: { id: 93, color: 'teal', lane: 1,
       distance: 520, speed: 0, driftToLane: 4 } }]);
@@ -424,8 +427,57 @@ describe('progression rendering', () => {
       && points[0]![0] * points[1]![0] < 0 && points[0]![1] * points[1]![1] < 0)).toBe(false);
   });
 
-  it('joins a double anomaly into one side-attached rule', () => {
+  it('keeps fallback block-anomaly evidence global when event metadata has expired', () => {
     const { renderer, strokes } = surface();
+    const current = snapshot();
+    renderer.render({ ...current, cycle: { ...current.cycle,
+      warning: ['drift'], warningRemainingMs: 1_000,
+      threat: { pattern: 'single', anchorLane: 5, lanes: [5], anomalies: ['drift'],
+        warningMs: 2_500, entryDelayMs: 0, bonusIncompatible: true,
+        evidence: { seedCycle: 2, phase: 'pressure', budget: 9, spent: 3, combinationKey: 'single:drift' } },
+    } }, baseEffects(), presentation(), 0);
+    const contours = strokes.filter(({ style, points }) => style === VISUAL_COLORS.amber && points.length === 6);
+    expect(contours.some((stroke) => Math.hypot(...center(stroke)) < 2)).toBe(true);
+    expect(contours.some((stroke) => Math.abs(Math.hypot(...center(stroke)) - 215) < 2)).toBe(false);
+  });
+
+  it('keeps a global control warning and its fallback at the hub despite future authored lanes', () => {
+    const current = snapshot();
+    const warned = { ...current, cycle: { ...current.cycle,
+      warning: ['reverse' as const], warningRemainingMs: 2_500,
+      threat: { pattern: 'single' as const, anchorLane: 3, lanes: [3], anomalies: ['reverse' as const],
+        warningMs: 2_500, entryDelayMs: 0, bonusIncompatible: true,
+        evidence: { seedCycle: 2, phase: 'pressure' as const, budget: 9, spent: 4,
+          combinationKey: 'single:reverse' } },
+    } };
+    const fx = new EffectsSystem({ random: () => 0.5 });
+    fx.consume([{ type: 'anomalyWarning', anomalies: ['reverse'], lanes: [3],
+      warningMs: 2_500, atActiveMs: 117_000 }]);
+    for (const effects of [fx.snapshot(), baseEffects()]) {
+      const { renderer, context } = surface();
+      renderer.render(warned, effects, presentation(), 0);
+      const arc = context.arc.mock.calls.find((call) => call[2] === 18)!;
+      expect(arc[0]).toBeCloseTo(0);
+      expect(arc[1]).toBeCloseTo(0);
+    }
+  });
+
+  it('keeps both unknown-route block warnings legible at the hub', () => {
+    const { renderer, strokes } = surface();
+    const fx = new EffectsSystem({ random: () => 0.5, reducedMotion: true });
+    fx.consume([{ type: 'anomalyWarning', anomalies: ['mirage', 'drift'], lanes: [1, 4],
+      warningMs: 3_200, atActiveMs: 420_000 }]);
+    const current = snapshot();
+    renderer.render({ ...current, cycle: { ...current.cycle,
+      warning: ['mirage', 'drift'], warningRemainingMs: 3_200,
+    } }, fx.snapshot(), presentation(), 0);
+    const contours = strokes.filter(({ style, points }) => style === VISUAL_COLORS.amber && points.length === 6);
+    expect(contours.some((stroke) => Math.abs(center(stroke)[0] + 30) < 2 && Math.abs(center(stroke)[1]) < 2)).toBe(true);
+    expect(contours.some((stroke) => Math.abs(center(stroke)[0] - 30) < 2 && Math.abs(center(stroke)[1]) < 2)).toBe(true);
+  });
+
+  it('keeps both mixed control/block warning glyphs distinct at the hub', () => {
+    const { renderer, context, strokes } = surface();
     const fx = new EffectsSystem({ random: () => 0.5 });
     fx.consume([{ type: 'anomalyWarning', anomalies: ['reverse', 'mirage'], lanes: [2],
       warningMs: 3_200, atActiveMs: 0 }]);
@@ -433,11 +485,14 @@ describe('progression rendering', () => {
     renderer.render({ ...current, cycle: { ...current.cycle,
       warning: ['reverse', 'mirage'], warningRemainingMs: 3_200,
     } }, fx.snapshot(), presentation(), 0);
-    expect(strokes.some(({ style, points }) => style === VISUAL_COLORS.amber
-      && points.length === 2 && Math.hypot(points[0]![0] - points[1]![0], points[0]![1] - points[1]![1]) >= 50)).toBe(true);
+    expect(strokes.some((stroke) => stroke.style === VISUAL_COLORS.amber
+      && stroke.points.length === 6 && Math.abs(center(stroke)[0] - 30) < 2)).toBe(true);
+    const reverseArc = context.arc.mock.calls.find((call) => call[2] === 18)!;
+    expect(reverseArc[0]).toBeCloseTo(-30);
+    expect(reverseArc[1]).toBeCloseTo(0);
   });
 
-  it('keeps INERTIA on a known threat lane after rotationDelayed clears its cue lanes', () => {
+  it('keeps delayed-rotation INERTIA global even when a future threat lane is known', () => {
     const { renderer, context } = surface();
     const fx = new EffectsSystem({ random: () => 0.5 });
     fx.consume([{ type: 'anomalyWarning', anomalies: ['mirage', 'inertia'], lanes: [3],
@@ -449,7 +504,8 @@ describe('progression rendering', () => {
       warning: ['mirage', 'inertia'], warningRemainingMs: 1_000,
     } }, fx.snapshot(), presentation(), 0);
     const inertiaArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
-    expect(inertiaArc[1]).toBeGreaterThan(0);
+    expect(inertiaArc[0]).toBeCloseTo(30);
+    expect(inertiaArc[1]).toBeCloseTo(0);
     context.arc.mockClear();
     renderer.render(snapshot(), fx.snapshot(), presentation(), 0);
     const unrelatedArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
@@ -466,8 +522,8 @@ describe('progression rendering', () => {
         evidence: { seedCycle: 1, phase: 'build', budget: 1, spent: 1, combinationKey: 'inertia' } },
     } }, isolated.snapshot(), presentation(), 0);
     const threatArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
-    expect(threatArc[1]).toBeGreaterThan(0);
-    expect(Math.hypot(threatArc[0], threatArc[1])).toBeCloseTo(HEX_APOTHEM + 22);
+    expect(threatArc[0]).toBeCloseTo(0);
+    expect(threatArc[1]).toBeCloseTo(0);
     context.arc.mockClear();
     renderer.render(snapshot(), isolated.snapshot(), presentation(), 0);
     const unlocatedArc = context.arc.mock.calls.find((call) => call[2] === 22)!;
@@ -475,7 +531,7 @@ describe('progression rendering', () => {
     expect(unlocatedArc[1]).toBeCloseTo(0);
   });
 
-  it('places double-threat INERTIA glyph on an end of the shared side rule', () => {
+  it('places double-threat INERTIA glyph on an end of the shared hub rule', () => {
     const { renderer, context, strokes } = surface();
     const fx = new EffectsSystem({ random: () => 0.5 });
     fx.consume([{ type: 'anomalyWarning', anomalies: ['mirage', 'inertia'], lanes: [3],
@@ -488,6 +544,7 @@ describe('progression rendering', () => {
     const rule = strokes.find(({ style, points }) => style === VISUAL_COLORS.amber && points.length === 2
       && Math.hypot(points[0]![0] - points[1]![0], points[0]![1] - points[1]![1]) >= 50)!;
     const arc = context.arc.mock.calls.find((call) => call[2] === 22)!;
+    expect(Math.hypot(arc[0], arc[1])).toBeCloseTo(30);
     const distanceToEnd = Math.min(...rule.points.map(([x, y]) => Math.hypot(arc[0] - x, arc[1] - y)));
     expect(distanceToEnd).toBeLessThan(1);
     expect(strokes.some(stroke => stroke.style === VISUAL_COLORS.amber && stroke.points.length === 6

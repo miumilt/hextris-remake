@@ -164,23 +164,10 @@ export class ScreenController {
     const suffix = snapshot.cycle.warning.length > 0
       ? ` ЧЕРЕЗ ${Math.ceil(snapshot.cycle.warningRemainingMs / 1000)} С` : ' АКТИВНО';
     const names = (types: readonly AnomalyType[]): string => types.map((type) => ANOMALY_LABELS[type]).join(' + ');
-    const controlTypes = warningTypes.filter((type) => type === 'reverse' || type === 'inertia');
     const blockTypes = warningTypes.filter((type) => type !== 'reverse' && type !== 'inertia');
-    // An active block anomaly affects later spawns too; authored lanes are truthful only before onset.
-    const lanes = snapshot.cycle.warning.length > 0 ? snapshot.cycle.threat?.lanes ?? [] : [];
-    const denseBlockWarning = blockTypes.length > 0 && lanes.length >= 3;
-    const warningSides: (number | string)[] = [];
-    if (warningTypes.length > 0) {
-      if (controlTypes.length > 0 || lanes.length === 0 || denseBlockWarning) warningSides.push('center');
-      if (blockTypes.length > 0 && lanes.length > 0) warningSides.push(...lanes);
-    }
     const fullWarning = warningTypes.length > 0 ? `${names(warningTypes)}${suffix}` : '';
-    const centerWarning = denseBlockWarning ? fullWarning
-      : `${names(lanes.length > 0 ? controlTypes : warningTypes)}${suffix}`;
-    const laneWarning = `${names(blockTypes)}${suffix}`;
-    this.renderSideCues('.field-warning-host', 'field-warning', warningSides,
-      (side) => side === 'center' ? centerWarning : denseBlockWarning ? '' : laneWarning,
-      fullWarning, denseBlockWarning || lanes.length === 0);
+    this.renderSideCues('.field-warning-host', 'field-warning', fullWarning ? ['center'] : [],
+      () => fullWarning, fullWarning, blockTypes.length > 0);
     const dangerSides = snapshot.stacks.flatMap((stack, side) =>
       stack.length >= MAX_STACK_DEPTH - 2
         ? [(side - snapshot.orientation + snapshot.stacks.length) % snapshot.stacks.length] : []);

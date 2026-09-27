@@ -897,28 +897,21 @@ export class CanvasRenderer {
     const warning = new Set(snapshot.cycle.warning);
     for (const type of [...active, ...warning]) {
       if (live.has(type)) continue;
-      const threatLanes = snapshot.cycle.threat?.anomalies.includes(type) ? snapshot.cycle.threat.lanes : [];
-      live.set(type, { anomaly: type, lanes: threatLanes,
+      live.set(type, { anomaly: type, lanes: [],
         ageMs: 0, lifetimeMs: 1, warning: warning.has(type), direction: type === 'reverse' ? -1 : null,
         destinationLane: null, futureColor: null, remainingImpulseMs: 0 });
     }
     const isSharedThreat = (first: AnomalyCue['anomaly'], second: AnomalyCue['anomaly']): boolean =>
       (warning.has(first) && warning.has(second)) || (active.has(first) && active.has(second));
-    const cues = [...live.values()].map((cue) => {
-      if (cue.lanes.length > 0) return cue;
-      const threatLanes = snapshot.cycle.threat?.anomalies.includes(cue.anomaly)
-        ? snapshot.cycle.threat.lanes : null;
-      const peerLanes = [...live.values()].find((peer) => peer.lanes.length > 0
-        && isSharedThreat(cue.anomaly, peer.anomaly))?.lanes;
-      return { ...cue, lanes: threatLanes ?? peerLanes ?? [] };
-    });
-    const sharedLane = cues.find(({ lanes }) => lanes.length > 0)?.lanes[0];
-    const paired = cues.length >= 2 && sharedLane !== undefined
-      && isSharedThreat(cues[0]!.anomaly, cues[1]!.anomaly);
-    if (paired) {
-      const angle = this.laneAngle(sharedLane);
-      const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
-      const center = { x: Math.cos(angle) * 215, y: Math.sin(angle) * 215 };
+    const cues = [...live.values()];
+    const shared = cues.length >= 2 && isSharedThreat(cues[0]!.anomaly, cues[1]!.anomaly);
+    const sharedLane = cues[0]?.lanes[0];
+    const pairedSide = shared && sharedLane !== undefined && cues[1]!.lanes[0] === sharedLane;
+    const pairedHub = shared && cues[0]!.lanes.length === 0 && cues[1]!.lanes.length === 0;
+    if (pairedSide || pairedHub) {
+      const angle = pairedSide ? this.laneAngle(sharedLane) : 0;
+      const tangent = pairedHub ? { x: 1, y: 0 } : { x: -Math.sin(angle), y: Math.cos(angle) };
+      const center = pairedSide ? { x: Math.cos(angle) * 215, y: Math.sin(angle) * 215 } : ORIGIN;
       const ctx = this.ctx;
       ctx.save();
       ctx.globalAlpha = 0.45;
@@ -931,7 +924,8 @@ export class CanvasRenderer {
       ctx.restore();
     }
     cues.forEach((cue, index) => this.anomalyCue(cue,
-      paired && index < 2 ? (index === 0 ? -1 : 1) : 0, paired && index < 2));
+      (pairedSide || pairedHub) && index < 2 ? (index === 0 ? -1 : 1) : 0,
+      pairedSide && index < 2));
   }
 
   private anomalyCue(cue: AnomalyCue, offset: number, sideAttached: boolean): void {
@@ -940,7 +934,7 @@ export class CanvasRenderer {
     const angle = lane === null ? 0 : this.laneAngle(lane);
     const tangent = { x: -Math.sin(angle), y: Math.cos(angle) };
     const radius = cue.anomaly === 'inertia' && !sideAttached ? HEX_APOTHEM + 22 : 215;
-    const point = lane === null ? ORIGIN : { x: Math.cos(angle) * radius + tangent.x * offset * 30,
+    const point = lane === null ? { x: offset * 30, y: 0 } : { x: Math.cos(angle) * radius + tangent.x * offset * 30,
       y: Math.sin(angle) * radius + tangent.y * offset * 30 };
     ctx.save();
     ctx.globalAlpha = cue.warning ? 0.72 : 0.58;
@@ -965,7 +959,7 @@ export class CanvasRenderer {
       }
     } else if (cue.anomaly === 'drift') {
       if (cue.destinationLane === null) {
-        // The warning knows the affected lane, not yet the incoming block's destination.
+        // Anomaly warnings stay global until an affected block reveals its route.
         this.path(hexPoints(point, 16, -TURN));
         ctx.stroke();
       } else {

@@ -359,12 +359,12 @@ export class EffectsSystem {
           break;
         case 'anomalyWarning':
           for (const anomaly of event.anomalies) {
-            this.upsertAnomalyCue(anomaly, event.lanes, true, event.warningMs);
+            this.upsertAnomalyCue(anomaly, [], true, event.warningMs);
           }
           break;
         case 'anomalyStarted':
           for (const anomaly of event.anomalies) {
-            this.upsertAnomalyCue(anomaly, event.lanes, false, ORDINARY_EXPIRY_MS);
+            this.upsertAnomalyCue(anomaly, [], false, ORDINARY_EXPIRY_MS);
           }
           this.flash('amber', 0.55, 100);
           break;

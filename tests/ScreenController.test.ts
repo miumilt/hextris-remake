@@ -349,6 +349,28 @@ describe('ScreenController', () => {
     expect(root.querySelector('.field-warning')).toBe(status);
   });
 
+  it('announces a block anomaly globally before its first affected route is known', () => {
+    const game = new GameEngine({ randomSeed: 3, maxStackDepth: 100,
+      director: { forcedSituationsByCycle: { 2: { pattern: 'single', anchorLane: 5, anomalies: ['drift'] } } } });
+    const screen = new ScreenController(root);
+    game.start();
+    game.update(117_000);
+    const warned = game.getSnapshot();
+    expect(warned.cycle.warning).toEqual(['drift']);
+    expect(warned.cycle.threat?.lanes).toEqual([5]);
+    screen.render(warned, emptyPresentation());
+    const announcement = root.querySelector<HTMLElement>('.field-warning[role="status"]');
+    expect(announcement?.dataset.side).toBe('center');
+    expect(announcement?.getAttribute('aria-label')).toBe('ДРЕЙФ ЧЕРЕЗ 3 С');
+    expect(root.querySelectorAll('.field-warning[data-side="5"]')).toHaveLength(0);
+
+    const firstAffected = game.update(3_500).find((event) => event.type === 'blockSpawned'
+      && event.block.driftToLane !== undefined);
+    expect(firstAffected).toMatchObject({ block: { lane: 2, driftToLane: 1 } });
+    screen.render(game.getSnapshot(), emptyPresentation());
+    expect(root.querySelector('.field-warning[role="status"]')?.getAttribute('data-side')).toBe('center');
+  });
+
   it('keeps complete bonus meaning in its slot after acquisition copy expires', () => {
     const screen = new ScreenController(root);
     screen.render(snapshot({ mode: 'playing', bonus: { stored: 'pulse', slowRemainingMs: 0 } }), emptyPresentation());
@@ -360,7 +382,7 @@ describe('ScreenController', () => {
     expect(root.querySelector('.presentation-notice')).toBeNull();
   });
 
-  it('pins warning and overflow danger to the affected sides', () => {
+  it('keeps block warnings global while overflow danger stays side-attached', () => {
     const screen = new ScreenController(root);
     const current = snapshot({ mode: 'playing' });
     const stacks = current.stacks.map((stack, side) => side === 1
@@ -372,15 +394,15 @@ describe('ScreenController', () => {
           warningMs: 2500, entryDelayMs: 0, bonusIncompatible: false,
           evidence: { seedCycle: 2, phase: 'pressure', budget: 6, spent: 4, combinationKey: 'pair:drift:4' } } },
     }, emptyPresentation());
-    expect(root.querySelector('[data-side="4"].field-warning')?.textContent).toContain('ДРЕЙФ');
-    expect(root.querySelector('[data-side="5"].field-warning')?.textContent).toContain('ДРЕЙФ');
+    expect(root.querySelector('[data-side="center"].field-warning')?.textContent).toContain('ДРЕЙФ');
+    expect(root.querySelectorAll('.field-warning[data-side="4"], .field-warning[data-side="5"]')).toHaveLength(0);
     expect(root.querySelectorAll('.field-warning[role="status"]')).toHaveLength(1);
-    expect(root.querySelector('[data-side="5"].field-warning')?.getAttribute('aria-hidden')).toBe('true');
+    expect(root.querySelector('.field-warning[role="status"]')?.getAttribute('aria-label')).toBe('ДРЕЙФ ЧЕРЕЗ 3 С');
     expect(root.querySelector('[data-side="1"].field-danger')?.textContent).toContain('ОПАСНО');
     expect(root.querySelector('.danger-panel')).toBeNull();
   });
 
-  it('shows one readable circle warning with six exact compact lane markers and one full announcement', () => {
+  it('shows a dense-wave block warning once without marking unverified routes', () => {
     const screen = new ScreenController(root);
     const current = snapshot({ mode: 'playing' });
     screen.render({ ...current, cycle: { ...current.cycle, warning: ['drift'], warningRemainingMs: 2500,
@@ -394,8 +416,7 @@ describe('ScreenController', () => {
     expect(semantic?.textContent).toBe('ДРЕЙФ ЧЕРЕЗ 3 С');
     expect(semantic?.getAttribute('aria-label')).toBe('ДРЕЙФ ЧЕРЕЗ 3 С');
     const markers = [...root.querySelectorAll<HTMLElement>('.field-warning-marker')];
-    expect(markers.map(({ dataset }) => dataset.side)).toEqual(['2', '3', '4', '5', '0', '1']);
-    expect(markers.every((marker) => marker.textContent === '' && marker.getAttribute('aria-hidden') === 'true')).toBe(true);
+    expect(markers).toHaveLength(0);
     expect(root.querySelectorAll('.field-warning[role="status"]')).toHaveLength(1);
   });
 
@@ -417,7 +438,7 @@ describe('ScreenController', () => {
     expect(root.querySelectorAll('.field-warning[data-side="4"], .field-warning[data-side="5"]')).toHaveLength(0);
   });
 
-  it('splits a mixed control and block warning without losing either name for screen readers', () => {
+  it('announces a mixed control and block warning together at the hub', () => {
     const screen = new ScreenController(root);
     const current = snapshot({ mode: 'playing' });
     screen.render({ ...current, cycle: { ...current.cycle, warning: ['mirage', 'inertia'],
@@ -428,13 +449,12 @@ describe('ScreenController', () => {
           combinationKey: 'pair:mirage+inertia:2' } } } }, emptyPresentation());
     const control = root.querySelector<HTMLElement>('[data-side="center"].field-warning');
     expect(control?.textContent).toContain('ИНЕРЦИЯ');
-    expect(control?.classList.contains('field-warning-raised')).toBe(false);
-    expect(control?.textContent).not.toContain('МИРАЖ');
-    expect(root.querySelector('[data-side="2"].field-warning')?.textContent).toContain('МИРАЖ');
-    expect(root.querySelector('[data-side="3"].field-warning')?.textContent).toContain('МИРАЖ');
+    expect(control?.classList.contains('field-warning-raised')).toBe(true);
+    expect(control?.textContent).toContain('МИРАЖ');
+    expect(root.querySelectorAll('.field-warning[data-side="2"], .field-warning[data-side="3"]')).toHaveLength(0);
     expect(control?.getAttribute('aria-label')).toContain('МИРАЖ + ИНЕРЦИЯ');
     expect(root.querySelectorAll('.field-warning[role="status"]')).toHaveLength(1);
-    expect(root.querySelectorAll('.field-warning[aria-hidden="true"]')).toHaveLength(2);
+    expect(root.querySelectorAll('.field-warning[aria-hidden="true"]')).toHaveLength(0);
   });
 
   it('keeps an ongoing block anomaly status off expired authored-wave lanes', () => {
