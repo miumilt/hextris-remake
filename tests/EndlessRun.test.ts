@@ -8,6 +8,58 @@ import { clampWaveProfile } from '../src/game/UpgradeSystem';
 const modifiers = { anomalyDurationMultiplier: 1, bonusIntervalMultiplier: 1 };
 
 describe('endless threat pressure', () => {
+  it('does not release delayed Pressure spiral blocks after the Release boundary', () => {
+    const run = (boundaryChunks: readonly number[], releaseChunks: readonly number[]) => {
+      const game = new GameEngine({ randomSeed: 1, maxStackDepth: 1_000 });
+      game.start();
+      for (let cycle = 1; cycle <= 8; cycle += 1) {
+        game.update(75_000);
+        if (game.getSnapshot().mode === 'upgrade') {
+          game.enqueue({ type: 'confirmUpgrade' });
+          game.update(0);
+        }
+        expect(game.getSnapshot().cycle.number).toBe(cycle + 1);
+      }
+
+      game.update(69_600);
+      expect(game.getSnapshot().cycle).toMatchObject({ number: 9, phase: 'pressure', elapsedMs: 69_600 });
+      const latePressure = game.update(200).filter((event) => event.type === 'blockSpawned');
+      expect(latePressure.length).toBeGreaterThan(0);
+      const visibleAtPressure = new Set(game.getSnapshot().falling.map(({ id }) => id));
+      expect(visibleAtPressure.size).toBeGreaterThan(0);
+
+      const boundaryEvents = boundaryChunks.flatMap((chunk) => game.update(chunk));
+      expect(game.getSnapshot().cycle).toMatchObject({ number: 9, phase: 'release', elapsedMs: 70_000 });
+      expect(boundaryEvents).toContainEqual({ type: 'phaseChanged', phase: 'release', cycle: 9, atActiveMs: 670_000 });
+      expect(game.getSnapshot().falling.some(({ id }) => visibleAtPressure.has(id))).toBe(true);
+
+      let atMs = 70_000;
+      const releaseArrivals = releaseChunks.map((chunk) => {
+        atMs += chunk;
+        const lanes = game.update(chunk).filter((event) => event.type === 'blockSpawned')
+          .map((event) => event.block.lane);
+        return { atMs, lanes };
+      });
+      const ordinaryArrivals = game.update(2_000).filter((event) => event.type === 'blockSpawned');
+      expect(ordinaryArrivals.length).toBeGreaterThan(0);
+      return { boundaryEvents, releaseArrivals, ordinaryArrivals, snapshot: game.getSnapshot() };
+    };
+
+    const large = run([200], [500]);
+    const split = run([100, 100], [100, 100, 100, 100, 100]);
+    expect(large.boundaryEvents).toEqual(split.boundaryEvents);
+    expect(large.releaseArrivals.flatMap(({ lanes }) => lanes))
+      .toEqual(split.releaseArrivals.flatMap(({ lanes }) => lanes));
+    expect(large.ordinaryArrivals).toEqual(split.ordinaryArrivals);
+    expect(large.snapshot).toEqual(split.snapshot);
+    expect(split.releaseArrivals.filter(({ atMs }) => [70_100, 70_300, 70_500].includes(atMs)))
+      .toEqual([
+        { atMs: 70_100, lanes: [] },
+        { atMs: 70_300, lanes: [] },
+        { atMs: 70_500, lanes: [] },
+      ]);
+  });
+
   it('spawns a forced Pressure circle once at its authored lanes, then resumes ordinary waves', () => {
     const game = new GameEngine({ randomSeed: 31, maxStackDepth: 100,
       director: { forcedSituationsByCycle: { 1: { pattern: 'circle', anchorLane: 2, anomalies: [] } } } });

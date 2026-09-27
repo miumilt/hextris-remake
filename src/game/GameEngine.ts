@@ -189,6 +189,9 @@ export class GameEngine {
       if (directorTick.bonusDue) this.scheduleBonus(spawnSpeed, events);
       let spawned: readonly FallingBlock[] = [];
       if (this.spawning) {
+        if (directorTick.events.some((event) => event.type === 'phaseChanged' && event.phase === 'release')) {
+          this.spawner.discardPendingEntries();
+        }
         spawned = this.spawn(this.spawner.update(motionDeltaMs, profile));
       }
       if (this.openingRemainingMs === 0) this.openingPreviewLanes = [];

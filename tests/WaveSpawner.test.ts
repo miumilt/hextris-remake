@@ -56,6 +56,19 @@ describe('WaveSpawner', () => {
     expect(run([2_610])).toEqual(run([2_000, 450, 160]));
   });
 
+  it('discards only delayed entries while keeping the ordinary wave timer', () => {
+    const spawner = new WaveSpawner({ next: () => 0 });
+    const spiral = profile({ intervalMs: 1_000, forcedPattern: 'spiral', forcedAnchorLane: 0 });
+    const release = profile({ intervalMs: 1_000, forcedPattern: 'single', forcedAnchorLane: 4 });
+
+    expect(spawner.update(1_000, spiral).map(({ lane }) => lane)).toEqual([0]);
+    expect(spawner.update(100, spiral)).toEqual([]);
+    spawner.discardPendingEntries();
+
+    expect(spawner.update(899, release)).toEqual([]);
+    expect(spawner.update(1, release).map(({ lane }) => lane)).toEqual([4]);
+  });
+
   it('creates the original-style lane patterns', () => {
     const spawner = new WaveSpawner(new SeededRandom(7));
 

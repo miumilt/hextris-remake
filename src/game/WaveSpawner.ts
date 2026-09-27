@@ -90,6 +90,10 @@ export class WaveSpawner {
     return Object.freeze(this.scheduled?.entries.map(({ lane }) => lane) ?? []);
   }
 
+  public discardPendingEntries(): void {
+    this.pending = [];
+  }
+
   public getNextEventMs(profile: WaveProfile): number {
     this.validateProfile(profile);
     this.syncForcedSequence(profile);
