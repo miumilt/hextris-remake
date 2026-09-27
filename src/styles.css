@@ -145,6 +145,7 @@ body:has(#ui-root[data-transition='start']) #game-canvas { animation: enter-fiel
   .menu-actions { top: calc(50% + 156px); }
 }
 @media (max-height: 800px) {
+  .presentation-host.cycle-completion-aside { left: 34px; width: 260px; transform: none; text-align: left; }
   .upgrade-heading { top: 26px; }
   .upgrade-choice { min-height: 198px; }
   .upgrade-hint { bottom: 18px; }

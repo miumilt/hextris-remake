@@ -185,6 +185,8 @@ export class ScreenController {
       stack.length >= MAX_STACK_DEPTH - 2
         ? [(side - snapshot.orientation + snapshot.stacks.length) % snapshot.stacks.length] : []);
     this.renderSideCues('.field-danger-host', 'field-danger', dangerSides, () => 'ОПАСНО');
+    presentationHost?.classList.toggle('cycle-completion-aside',
+      presentation.notice?.kind === 'cycleCompletion' && dangerSides.includes(0));
   }
 
   private renderBonus(snapshot: GameSnapshot, presentation: PresentationSnapshot): void {

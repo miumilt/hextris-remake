@@ -210,6 +210,34 @@ describe('PresentationSystem', () => {
     expect(presentation.snapshot().queuedNotices).toEqual([]);
   });
 
+  it.each([1, 2])('offers a short semantic completion notice for ordinary cycle %i', (cycle) => {
+    const presentation = new PresentationSystem();
+    presentation.consume([{ type: 'phaseChanged', phase: 'release', cycle, atActiveMs: cycle * 75_000 - 15_000 }]);
+    expect(presentation.snapshot().notice).toBeNull();
+    presentation.consume([{ type: 'cycleCompleted', cycle, atActiveMs: cycle * 75_000 }]);
+    expect(presentation.snapshot().notice).toMatchObject({
+      title: `ЦИКЛ ${cycle} ЗАВЕРШЁН`, body: '', tone: 'amber', assertive: false,
+      priority: 2, lifetimeMs: 900, kind: 'cycleCompletion',
+    });
+    presentation.update(899, 'playing');
+    expect(presentation.snapshot().notice).not.toBeNull();
+    presentation.update(1, 'playing');
+    expect(presentation.snapshot().notice).toBeNull();
+  });
+
+  it('queues ordinary completion behind an active bonus notice and leaves upgrade completion to its heading', () => {
+    const presentation = new PresentationSystem();
+    presentation.consume([{ type: 'bonusActivated', bonus: 'slow' }]);
+    presentation.consume([{ type: 'cycleCompleted', cycle: 2, atActiveMs: 150_000 }]);
+    expect(presentation.snapshot().notice?.title).toBe('ЗАМЕДЛЕНИЕ АКТИВИРОВАН');
+    expect(presentation.snapshot().queuedNotices.map(({ title }) => title)).toEqual(['ЦИКЛ 2 ЗАВЕРШЁН']);
+    presentation.update(900, 'playing');
+    expect(presentation.snapshot().notice?.title).toBe('ЦИКЛ 2 ЗАВЕРШЁН');
+    presentation.update(900, 'playing');
+    presentation.consume([{ type: 'cycleCompleted', cycle: 3, atActiveMs: 225_000 }]);
+    expect(presentation.snapshot().notice).toBeNull();
+  });
+
   it('keeps bounded priority for simultaneous gameplay events', () => {
     const presentation = new PresentationSystem();
     presentation.consume([

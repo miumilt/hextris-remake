@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { ScreenController } from '../src/ui/ScreenController';
 import { GameEngine } from '../src/game/GameEngine';
 import type { GameSnapshot } from '../src/game/types';
-import type { PresentationSnapshot } from '../src/presentation/PresentationSystem';
+import { PresentationSystem, type PresentationSnapshot } from '../src/presentation/PresentationSystem';
 
 describe('ScreenController', () => {
   let root: HTMLElement;
@@ -133,6 +133,54 @@ describe('ScreenController', () => {
     expect(root.querySelector('.bonus-slot')?.textContent).toContain('ИСПОЛЬЗОВАТЬ');
     expect(root.querySelector('.bonus-slot')?.classList.contains('attention')).toBe(true);
     expect(root.querySelector('[aria-label="Осталось замедления"]')?.getAttribute('aria-valuenow')).toBe('4200');
+  });
+
+  it('renders ordinary cycle completion once as a polite playing status while upgrade keeps its heading', () => {
+    const presentation = new PresentationSystem();
+    const screen = new ScreenController(root);
+    presentation.consume([{ type: 'cycleCompleted', cycle: 1, atActiveMs: 75_000 }]);
+    screen.render(snapshot({ mode: 'playing', cycle: {
+      number: 2, phase: 'settle', elapsedMs: 0, totalActiveMs: 75_000,
+      durationMs: 75_000, progress: 0, warning: [], warningRemainingMs: 0,
+      anomalies: [], threat: null,
+    } }), presentation.snapshot());
+    expect(root.querySelectorAll('.presentation-notice')).toHaveLength(1);
+    expect(root.querySelectorAll('.presentation-notice[role="status"]')).toHaveLength(1);
+    expect(root.querySelector('.presentation-host')?.getAttribute('aria-live')).toBe('polite');
+    expect(root.querySelector('.presentation-notice')?.textContent).toContain('ЦИКЛ 1 ЗАВЕРШЁН');
+
+    presentation.consume([{ type: 'cycleCompleted', cycle: 3, atActiveMs: 225_000 }]);
+    screen.render(snapshot({ mode: 'upgrade', cycle: {
+      number: 3, phase: 'release', elapsedMs: 75_000, totalActiveMs: 225_000,
+      durationMs: 75_000, progress: 1, warning: [], warningRemainingMs: 0,
+      anomalies: [], threat: null,
+    } }), presentation.snapshot());
+    expect(root.querySelector('.upgrade-heading')?.textContent).toContain('ЦИКЛ 03 ЗАВЕРШЁН');
+    expect(root.querySelectorAll('.presentation-notice')).toHaveLength(0);
+  });
+
+  it('routes only cycle-completion notice aside when the top danger cue needs its place', () => {
+    const presentation = new PresentationSystem();
+    const screen = new ScreenController(root);
+    const current = snapshot({ mode: 'playing' });
+    const stacks = current.stacks.map((stack, side) => side === 0
+      ? Array.from({ length: 10 }, (_, id) => ({ id: id + 1, color: 'coral' as const })) : stack);
+    presentation.consume([{ type: 'cycleCompleted', cycle: 1, atActiveMs: 75_000 }]);
+    screen.render({ ...current, stacks }, presentation.snapshot());
+    expect(root.querySelector('[data-side="0"].field-danger')?.textContent).toBe('ОПАСНО');
+    expect(root.querySelector('.presentation-host')?.classList.contains('cycle-completion-aside')).toBe(true);
+    expect(root.querySelector('.presentation-notice[role="status"]')?.textContent).toContain('ЦИКЛ 1 ЗАВЕРШЁН');
+
+    presentation.reset();
+    presentation.consume([{ type: 'bonusActivated', bonus: 'slow' }]);
+    screen.render({ ...current, stacks }, presentation.snapshot());
+    expect(root.querySelector('.presentation-host')?.classList.contains('cycle-completion-aside')).toBe(false);
+    expect(root.querySelector('[data-side="0"].field-danger')).not.toBeNull();
+
+    presentation.reset();
+    presentation.consume([{ type: 'cycleCompleted', cycle: 1, atActiveMs: 75_000 }]);
+    screen.render(current, presentation.snapshot());
+    expect(root.querySelector('.presentation-host')?.classList.contains('cycle-completion-aside')).toBe(false);
   });
 
   it('keeps the active slow timer visible after the inventory slot is consumed', () => {

@@ -14,6 +14,7 @@ export type PresentationEvent =
     };
 
 export interface PresentationNotice {
+  readonly kind?: 'cycleCompletion';
   readonly title: string;
   readonly body: string;
   readonly tone: PresentationTone;
@@ -156,6 +157,12 @@ export class PresentationSystem {
           if (event.phase === 'pressure' && this.announcedPressureCycle !== event.cycle) {
             this.announcedPressureCycle = event.cycle;
             candidates.push(this.createNotice('ДАВЛЕНИЕ', '', 'ivory', 2, 900));
+          }
+          break;
+        case 'cycleCompleted':
+          if (event.cycle % 3 !== 0) {
+            candidates.push({ ...this.createNotice(`ЦИКЛ ${event.cycle} ЗАВЕРШЁН`, '', 'amber', 2, 900),
+              kind: 'cycleCompletion' });
           }
           break;
         case 'anomalyStarted': {
