@@ -2,6 +2,8 @@
 
 A desktop browser arcade game built with TypeScript, Canvas 2D, and Vite. Rotate the hexagon to collect connected groups of three or more matching blocks. Clears collapse the stacks, quick successive clears build a combo, and overflowing the safe boundary ends the run.
 
+**Play online:** <https://miumilt.github.io/hextris-remake/> — the build is published by the GitHub Actions workflow in `.github/workflows/deploy.yml`; every push to `main` rebuilds `dist/` and redeploys it to GitHub Pages.
+
 An endless run follows 75-second cycles: 20 seconds of `SETTLE`, 35 of `BUILD`, 15 of `PRESSURE`, and 5 of `RELEASE`. The opening 1.2 seconds assembles the field and previews the first arrival. Later cycles spend a bounded threat budget on authored patterns and announced anomalies; speed and arrival cadence approach soft ceilings while situations grow more complex. Every third completed cycle offers a choice between two run-only upgrades.
 
 ## Controls
